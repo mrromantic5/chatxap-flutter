@@ -1,0 +1,155 @@
+name: Build ChatXAP APK & AAB
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4.7.0
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Accept Android licenses
+        run: yes | flutter doctor --android-licenses || true
+
+      - name: Write google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+
+      - name: Write keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 --decode > android/app/keystore.jks
+
+      # ── Create all res files automatically — no manual upload needed ──
+      - name: Create Android res files
+        run: |
+          # Create directories
+          mkdir -p android/app/src/main/res/values
+          mkdir -p android/app/src/main/res/values-night
+          mkdir -p android/app/src/main/res/drawable
+          mkdir -p android/app/src/main/res/xml
+          mkdir -p android/app/src/main/res/mipmap-mdpi
+          mkdir -p android/app/src/main/res/mipmap-hdpi
+          mkdir -p android/app/src/main/res/mipmap-xhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+
+          # styles.xml
+          cat > android/app/src/main/res/values/styles.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+                  <item name="android:windowBackground">@drawable/launch_background</item>
+              </style>
+              <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+                  <item name="android:windowBackground">?android:colorBackground</item>
+              </style>
+          </resources>
+          XML
+
+          # styles-night.xml
+          cp android/app/src/main/res/values/styles.xml \
+             android/app/src/main/res/values-night/styles.xml
+
+          # launch_background.xml
+          cat > android/app/src/main/res/drawable/launch_background.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item>
+                  <shape android:shape="rectangle">
+                      <solid android:color="#0A0F1F"/>
+                  </shape>
+              </item>
+          </layer-list>
+          XML
+
+          # network_security_config.xml
+          cat > android/app/src/main/res/xml/network_security_config.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="false">
+                  <trust-anchors>
+                      <certificates src="system"/>
+                  </trust-anchors>
+              </base-config>
+          </network-security-config>
+          XML
+
+          # Generate mipmap icons from assets/icon.png using Python
+          pip install Pillow -q
+          python3 << 'PYTHON'
+          from PIL import Image
+          img = Image.open("assets/icon.png").convert("RGBA")
+          sizes = {
+            "mipmap-mdpi": 48, "mipmap-hdpi": 72,
+            "mipmap-xhdpi": 96, "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192
+          }
+          for folder, size in sizes.items():
+            img.resize((size, size), Image.LANCZOS).save(
+              f"android/app/src/main/res/{folder}/ic_launcher.png", "PNG"
+            )
+            print(f"Created {folder}/ic_launcher.png ({size}x{size})")
+          PYTHON
+
+          echo "✅ All res files created"
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build release APK
+        env:
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Build release AAB
+        env:
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: flutter build appbundle --release --no-tree-shake-icons
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatXAP-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatXAP-AAB
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Done
+        run: |
+          echo "✅ ChatXAP build complete!"
+          echo "📱 APK → install on phone to test"
+          echo "🏪 AAB → upload to Play Store"
