@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "721143916949",
+    "firebase_url": "https://chatxap-push-system-default-rtdb.firebaseio.com",
+    "project_id": "chatxap-push-system",
+    "storage_bucket": "chatxap-push-system.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:721143916949:android:ff8f98dd12d678694a2e9c",
+        "android_client_info": {
+          "package_name": "com.tlyfe.chatxap2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBxOL-gS-dnfoBh9SXj773F2hrtIV7nTrE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
