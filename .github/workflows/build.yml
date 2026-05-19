@@ -36,7 +36,7 @@ jobs:
       - name: Flutter version check
         run: |
           flutter --version
-          flutter doctor --android-licenses || true
+          yes | flutter doctor --android-licenses || true
 
       # ── 5. Write google-services.json from GitHub Secret ──────────
       - name: Write google-services.json
