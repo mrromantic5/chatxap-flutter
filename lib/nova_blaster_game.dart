@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:async'; // ADDED: For Ticker
+import 'package:flutter/scheduler.dart'; // IMPORTANT: Add this
 import 'game_audio.dart';
 import 'game_particles.dart';
 
@@ -14,8 +14,9 @@ class NovaBlasterGame extends StatefulWidget {
   State<NovaBlasterGame> createState() => _NovaBlasterGameState();
 }
 
-class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
-  late Ticker _ticker;
+class _NovaBlasterGameState extends State<NovaBlasterGame> {
+  // ── REMOVED Ticker - using SchedulerBinding instead ──
+  bool _isRunning = true;
   
   double _width = 0, _height = 0;
   bool _isPlaying = true;
@@ -25,7 +26,7 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
   double _playerX = 0, _playerY = 0;
   final double _playerSize = 30;
   double _playerSpeed = 300, _shootCooldown = 0;
-  final double _shootDelay = 0.15; // CHANGED: Made final
+  final double _shootDelay = 0.15;
   
   List<Enemy> _enemies = [];
   List<Bullet> _bullets = [], _enemyBullets = [];
@@ -37,20 +38,26 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
   int _combo = 0, _maxCombo = 0, _enemiesKilled = 0;
   double _comboTimer = 0, _enemySpawnTimer = 0;
   double _enemySpawnDelay = 1.0;
+  
+  // ── Frame tracking ──
+  Duration _lastTime = Duration.zero;
 
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker(_gameLoop);
-    _ticker.start();
     _particles = ParticleSystem();
     GameAudio.initialize();
     _initParallax();
+    
+    // ── Start game loop using SchedulerBinding ──
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _gameLoop();
+    });
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _isRunning = false;
     GameAudio.stopBackgroundMusic();
     super.dispose();
   }
@@ -68,11 +75,21 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
     }
   }
 
-  void _gameLoop(Duration elapsed) {
-    if (!_isPlaying || _isPaused || _isGameOver) return;
+  // ── Game loop using SchedulerBinding ──
+  void _gameLoop() {
+    if (!_isRunning) return;
+    if (!_isPlaying || _isPaused || _isGameOver) {
+      SchedulerBinding.instance.addPostFrameCallback((_) => _gameLoop());
+      return;
+    }
     
-    final delta = elapsed.inMilliseconds / 1000.0;
+    final now = DateTime.now();
+    final delta = _lastTime == Duration.zero 
+        ? 0.016 
+        : (now.difference(_lastTime).inMilliseconds / 1000.0);
+    _lastTime = DateTime.now();
     
+    // ── Game update logic ──
     for (final star in _parallaxStars) {
       star.y += star.speed * delta;
       if (star.y > _height) {
@@ -124,6 +141,9 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
     if (_enemiesKilled >= _level * 10) _levelUp();
     
     setState(() {});
+    
+    // ── Schedule next frame ──
+    SchedulerBinding.instance.addPostFrameCallback((_) => _gameLoop());
   }
 
   void _spawnEnemy() {
@@ -244,7 +264,7 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
     _enemiesKilled = 0;
     _enemySpawnDelay = max(0.3, _enemySpawnDelay - 0.05);
     GameAudio.playLevelUp();
-    _particles.emitExplosion(_width / 2, _height / 2, count: 100, color: Colors.amber); // FIXED: gold → amber
+    _particles.emitExplosion(_width / 2, _height / 2, count: 100, color: Colors.amber);
   }
 
   void _gameOver() {
@@ -273,7 +293,6 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
       _enemiesKilled = 0;
       _enemySpawnTimer = 0;
       _playerSpeed = 300;
-      // REMOVED: _shootDelay = 0.15; (it's final)
       _shootCooldown = 0;
     });
   }
