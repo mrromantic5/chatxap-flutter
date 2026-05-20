@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async'; // ADDED: For Ticker
 import 'game_audio.dart';
 import 'game_particles.dart';
 
@@ -24,7 +25,7 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
   double _playerX = 0, _playerY = 0;
   final double _playerSize = 30;
   double _playerSpeed = 300, _shootCooldown = 0;
-  final double _shootDelay = 0.15;
+  final double _shootDelay = 0.15; // CHANGED: Made final
   
   List<Enemy> _enemies = [];
   List<Bullet> _bullets = [], _enemyBullets = [];
@@ -50,6 +51,7 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
   @override
   void dispose() {
     _ticker.dispose();
+    GameAudio.stopBackgroundMusic();
     super.dispose();
   }
 
@@ -242,7 +244,7 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
     _enemiesKilled = 0;
     _enemySpawnDelay = max(0.3, _enemySpawnDelay - 0.05);
     GameAudio.playLevelUp();
-    _particles.emitExplosion(_width / 2, _height / 2, count: 100, color: Colors.gold);
+    _particles.emitExplosion(_width / 2, _height / 2, count: 100, color: Colors.amber); // FIXED: gold → amber
   }
 
   void _gameOver() {
@@ -271,7 +273,7 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> with SingleTickerProv
       _enemiesKilled = 0;
       _enemySpawnTimer = 0;
       _playerSpeed = 300;
-      _shootDelay = 0.15;
+      // REMOVED: _shootDelay = 0.15; (it's final)
       _shootCooldown = 0;
     });
   }
