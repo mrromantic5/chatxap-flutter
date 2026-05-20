@@ -41,6 +41,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     super.dispose();
   }
 
+  // ── Connectivity monitor ────────────────────────────────────────
   void _monitorConnectivity() {
     Connectivity().onConnectivityChanged.listen((results) {
       if (!mounted) return;
@@ -58,6 +59,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
   }
 
+  // ── FCM listener ────────────────────────────────────────────────
   void _listenToFCM() {
     FirebaseMessaging.onMessage.listen((msg) {
       NotificationHandler.showNotification(msg);
@@ -83,6 +85,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
   }
 
+  // ── Register Flutter FCM token with ChatXAP backend ─────────────
   Future<void> _registerTokenWithBackend(String token) async {
     try {
       final safeToken = token.replaceAll("'", "\'").replaceAll("\n", "");
@@ -91,7 +94,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   try {
     var t = '$safeToken';
     var already = localStorage.getItem('cx_flutter_tok');
-    if (already === t) return;
+    if (already === t) return; // already registered this token
     fetch('/backend/push_subscribe.php', {
       method: 'POST',
       credentials: 'same-origin',
@@ -153,6 +156,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     window.IS_FLUTTER_APP = true;
     window.FLUTTER_PLATFORM = 'android';
 
+    // Text selection: disable on UI chrome, allow in message bubbles + inputs
     var styleId = 'cx-flutter-sel';
     var prev = document.getElementById(styleId);
     if (prev) prev.remove();
@@ -199,6 +203,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       try { window.flutter_inappwebview.callHandler('Bridge','openUrl',u); } catch(e){}
     }
   };
+  // Pass session cookie to Flutter for background notification reply
   try {
     window.flutter_inappwebview.callHandler('Bridge', 'saveSessionCookie', document.cookie);
   } catch(e) {}
@@ -377,6 +382,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                 },
               ),
 
+              // Progress bar
               if (_isLoading)
                 Positioned(
                   top: 0, left: 0, right: 0,
@@ -389,6 +395,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                   ),
                 ),
 
+              // Error/offline screen
               if (_hasError || !_hasInternet) _buildErrorScreen(),
             ],
           ),
@@ -397,6 +404,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     );
   }
 
+  // ── UPDATED ERROR SCREEN WITH GAME BUTTON ──────────────────────
   Widget _buildErrorScreen() {
     return Container(
       color: const Color(0xFF0A0F1F),
@@ -431,6 +439,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                     color: Color(0xFF9CA3AF), fontSize: 15, height: 1.6),
               ),
               const SizedBox(height: 30),
+              // ── NEW: Game button (only shows when offline) ──
               if (!_hasInternet)
                 SizedBox(
                   width: double.infinity,
@@ -460,6 +469,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                   ),
                 ),
               const SizedBox(height: 12),
+              // ── Existing Try Again button ──
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -493,6 +503,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     );
   }
 
+  // ── PREMIUM SAAS-GRADE EXIT DIALOG ──────────────────────────────
   void _showExitDialog() {
     if (!mounted) return;
     
@@ -505,6 +516,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 }
 
+// ── PREMIUM EXIT DIALOG WIDGET ──────────────────────────────────────
 class _PremiumExitDialog extends StatefulWidget {
   const _PremiumExitDialog();
 
@@ -878,7 +890,7 @@ class _PremiumExitDialogState extends State<_PremiumExitDialog> with SingleTicke
             },
             onPanEnd: (_) => onDragEnd(),
             child: MouseRegion(
-              onEnter: () {
+              onEnter: (PointerEnterEvent event) {
                 setState(() {
                   if (label == 'Stay') {
                     _isStayHovered = true;
@@ -889,7 +901,7 @@ class _PremiumExitDialogState extends State<_PremiumExitDialog> with SingleTicke
                   }
                 });
               },
-              onExit: () {
+              onExit: (PointerExitEvent event) {
                 setState(() {
                   if (label == 'Stay') {
                     _isStayHovered = false;
