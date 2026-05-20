@@ -16,6 +16,8 @@ class GameAudio {
     await _player.setReleaseMode(ReleaseMode.release);
     await _musicPlayer.setReleaseMode(ReleaseMode.loop);
     await _sfxPlayer.setReleaseMode(ReleaseMode.release);
+    
+    // AudioPlayers 6.0+ - set loop by setting release mode to loop
   }
   
   static Future<void> playShoot() async {
@@ -63,7 +65,7 @@ class GameAudio {
   static Future<void> startBackgroundMusic() async {
     if (_isMuted) return;
     try {
-      await _musicPlayer.setLoop(true);
+      await _musicPlayer.setReleaseMode(ReleaseMode.loop);
       await _musicPlayer.play(AssetSource('sounds/background.mp3'));
     } catch (_) {}
   }
