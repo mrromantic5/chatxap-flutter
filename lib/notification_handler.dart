@@ -280,85 +280,49 @@ class NotificationHandler {
     final type = parts.isNotEmpty ? parts[0] : '';
     final convId = parts.length > 1 ? parts[1] : '';
 
-    if (_webCtrl != null) {
-      // App is open — inject reply into the active WebView page
-      final safe = text
-          .replaceAll('\\', '\\\\')
-          .replaceAll("'", "\\'")
-          .replaceAll('"', '\\"')
-          .replaceAll('\n', ' ');
-
-      await _webCtrl!.evaluateJavascript(source: '''
-(function() {
-  try {
-    var inp = document.getElementById('ti') ||
-              document.getElementById('mi') ||
-              document.querySelector('textarea[id]') ||
-              document.querySelector('input[type="text"]');
-    if (!inp) return;
-    inp.focus();
-    inp.value = '$safe';
-    inp.dispatchEvent(new Event('input', {bubbles:true}));
-    inp.dispatchEvent(new Event('change', {bubbles:true}));
-    // Try clicking the send button
-    var btn = document.getElementById('send') ||
-              document.querySelector('.send-btn') ||
-              document.querySelector('[onclick*="sendMsg"]') ||
-              document.querySelector('[onclick*="sendMessage"]') ||
-              document.querySelector('button[type="submit"]');
-    if (btn) { btn.click(); return; }
-    // Fallback: dispatch Enter key
-    inp.dispatchEvent(new KeyboardEvent('keydown',
-      {key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
-  } catch(e) { console.warn('CX reply inject:', e); }
-})();
-''');
-    } else {
-      // App is closed — send directly to PHP backend
-      await _postReplyDirect(text, type, convId);
-    }
+    // Always use direct HTTP — most reliable for notification reply
+    // Works whether app is open, backgrounded, or closed
+    await _postReplyDirect(text, type, convId);
   }
 
-  // ── Direct HTTP post when app is closed ─────────────────────────
+  // ── Direct HTTP post — works open, backgrounded, or closed ────────────────
   static Future<void> _postReplyDirect(
       String text, String type, String convId) async {
     try {
+      final escaped = text
+          .replaceAll('\\', '\\\\')
+          .replaceAll('"', '\\"')
+          .replaceAll('\n', '\\n')
+          .replaceAll('\r', '');
+
       final String endpoint;
       final String bodyJson;
-      final escaped =
-          text.replaceAll('"', '\\"').replaceAll('\n', '\\n');
 
       if (type == 'private_message' || type == 'dm') {
-        endpoint =
-            'https://c.x.t-lyfe.com.ng/backend/dm_send.php';
-        bodyJson =
-            '{"conversation_id":"$convId","message":"$escaped"}';
+        endpoint = 'https://c.x.t-lyfe.com.ng/backend/dm_send.php';
+        bodyJson = '{"conversation_id":"$convId","message":"$escaped"}';
       } else if (type == 'group_message') {
-        endpoint =
-            'https://c.x.t-lyfe.com.ng/backend/group_message_send.php';
-        bodyJson =
-            '{"group_id":"$convId","message":"$escaped"}';
+        endpoint = 'https://c.x.t-lyfe.com.ng/backend/group_message_send.php';
+        bodyJson = '{"group_id":"$convId","message":"$escaped"}';
       } else {
-        // public chat
-        endpoint =
-            'https://c.x.t-lyfe.com.ng/backend/chat_send.php';
+        endpoint = 'https://c.x.t-lyfe.com.ng/backend/chat_send.php';
         bodyJson = '{"message":"$escaped"}';
       }
 
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10);
-      final request =
-          await client.postUrl(Uri.parse(endpoint));
+      final prefs = await SharedPreferences.getInstance();
+      final cookie = prefs.getString('session_cookie') ?? '';
+
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+      final request = await client.postUrl(Uri.parse(endpoint));
       request.headers.set('Content-Type', 'application/json');
       request.headers.set('X-Requested-With', 'XMLHttpRequest');
       request.headers.set('X-ChatXAP-App', '1');
+      if (cookie.isNotEmpty) request.headers.set('Cookie', cookie);
       request.write(bodyJson);
       final response = await request.close();
       await response.drain<void>();
       client.close();
-    } catch (_) {
-      // Silent fail — user will see message unsent when they open app
-    }
+    } catch (_) {}
   }
 
   // ── Navigate WebView to correct page ────────────────────────────
