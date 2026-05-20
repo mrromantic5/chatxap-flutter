@@ -5,7 +5,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:math';
 import 'notification_handler.dart';
+import 'game_widget.dart';
 
 class WebViewScreen extends StatefulWidget {
   final String? initialUrl;
@@ -39,7 +41,6 @@ class _WebViewScreenState extends State<WebViewScreen>
     super.dispose();
   }
 
-  // ── Connectivity monitor ────────────────────────────────────────
   void _monitorConnectivity() {
     Connectivity().onConnectivityChanged.listen((results) {
       if (!mounted) return;
@@ -57,7 +58,6 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
   }
 
-  // ── FCM listener ────────────────────────────────────────────────
   void _listenToFCM() {
     FirebaseMessaging.onMessage.listen((msg) {
       NotificationHandler.showNotification(msg);
@@ -83,9 +83,6 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
   }
 
-  // ── Register Flutter FCM token with ChatXAP backend ─────────────
-  // Critical fix: without this the backend never knows the Flutter
-  // FCM token, so notifications only go to the PWA service worker.
   Future<void> _registerTokenWithBackend(String token) async {
     try {
       final safeToken = token.replaceAll("'", "\'").replaceAll("\n", "");
@@ -94,7 +91,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   try {
     var t = '$safeToken';
     var already = localStorage.getItem('cx_flutter_tok');
-    if (already === t) return; // already registered this token
+    if (already === t) return;
     fetch('/backend/push_subscribe.php', {
       method: 'POST',
       credentials: 'same-origin',
@@ -156,7 +153,6 @@ class _WebViewScreenState extends State<WebViewScreen>
     window.IS_FLUTTER_APP = true;
     window.FLUTTER_PLATFORM = 'android';
 
-    // Text selection: disable on UI chrome, allow in message bubbles + inputs
     var styleId = 'cx-flutter-sel';
     var prev = document.getElementById(styleId);
     if (prev) prev.remove();
@@ -186,8 +182,6 @@ class _WebViewScreenState extends State<WebViewScreen>
     final token = await FirebaseMessaging.instance.getToken();
     if (token != null) {
       await _injectToken(token);
-      // Register with backend on every page load — safe because
-      // push_subscribe.php does INSERT IGNORE / UPDATE (no duplicates)
       await _registerTokenWithBackend(token);
     }
 
@@ -205,7 +199,6 @@ class _WebViewScreenState extends State<WebViewScreen>
       try { window.flutter_inappwebview.callHandler('Bridge','openUrl',u); } catch(e){}
     }
   };
-  // Pass session cookie to Flutter for background notification reply
   try {
     window.flutter_inappwebview.callHandler('Bridge', 'saveSessionCookie', document.cookie);
   } catch(e) {}
@@ -384,7 +377,6 @@ class _WebViewScreenState extends State<WebViewScreen>
                 },
               ),
 
-              // Progress bar
               if (_isLoading)
                 Positioned(
                   top: 0, left: 0, right: 0,
@@ -397,7 +389,6 @@ class _WebViewScreenState extends State<WebViewScreen>
                   ),
                 ),
 
-              // Error/offline screen
               if (_hasError || !_hasInternet) _buildErrorScreen(),
             ],
           ),
@@ -439,7 +430,36 @@ class _WebViewScreenState extends State<WebViewScreen>
                 style: const TextStyle(
                     color: Color(0xFF9CA3AF), fontSize: 15, height: 1.6),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 30),
+              if (!_hasInternet)
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const GameWidget(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.gamepad_rounded,
+                        color: Colors.white, size: 20),
+                    label: const Text('Play NOVA BLASTER Offline',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C5CFC),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -475,38 +495,481 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   void _showExitDialog() {
     if (!mounted) return;
+    
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1F2E),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Exit ChatXAP?',
-            style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 18)),
-        content: const Text('Are you sure you want to exit?',
-            style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14)),
-        actionsPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Stay',
-                style: TextStyle(
-                    color: Color(0xFF4DA3FF),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15)),
-          ),
-          TextButton(
-            onPressed: () => SystemNavigator.pop(),
-            child: const Text('Exit',
-                style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 15)),
-          ),
-        ],
+      barrierColor: Colors.black.withOpacity(0.7),
+      builder: (_) => const _PremiumExitDialog(),
+    );
+  }
+}
+
+class _PremiumExitDialog extends StatefulWidget {
+  const _PremiumExitDialog();
+
+  @override
+  State<_PremiumExitDialog> createState() => _PremiumExitDialogState();
+}
+
+class _PremiumExitDialogState extends State<_PremiumExitDialog> with SingleTickerProviderStateMixin {
+  late AnimationController _glowController;
+  late Animation<double> _glowAnimation;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+  
+  Offset _dragOffset = Offset.zero;
+  bool _isDragging = false;
+  bool _isStaySelected = false;
+  bool _isExitSelected = false;
+  double _dragProgress = 0.0;
+  
+  static const double _radius = 140.0;
+  static const double _buttonSize = 64.0;
+  static const double _centerZoneRadius = 40.0;
+  
+  bool _isStayHovered = false;
+  bool _isExitHovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    );
+    _glowAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _glowController,
+        curve: Curves.easeInOutSine,
       ),
+    );
+    _glowController.repeat(reverse: true);
+    
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _pulseAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
+      CurvedAnimation(
+        parent: _pulseController,
+        curve: Curves.easeInOut,
+      ),
+    );
+    _pulseController.repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _glowController.dispose();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  void _handleDragStart(Offset localPosition) {
+    setState(() {
+      _isDragging = true;
+      _dragOffset = localPosition;
+    });
+  }
+
+  void _handleDragUpdate(Offset localPosition) {
+    if (!_isDragging) return;
+    
+    setState(() {
+      _dragOffset = localPosition;
+      
+      final center = Offset(_radius + _buttonSize / 2, _radius + _buttonSize / 2);
+      final dx = localPosition.dx - center.dx;
+      final dy = localPosition.dy - center.dy;
+      final distance = sqrt(dx * dx + dy * dy);
+      
+      _dragProgress = (1 - distance / _radius).clamp(0.0, 1.0);
+      
+      final startAngle = atan2(dy, dx);
+      final angleDeg = startAngle * 180 / pi;
+      
+      if (angleDeg > -90 && angleDeg < 90) {
+        _isExitSelected = _dragProgress > 0.7;
+        _isStaySelected = false;
+      } else {
+        _isStaySelected = _dragProgress > 0.7;
+        _isExitSelected = false;
+      }
+      
+      if (_dragProgress > 0.85) {
+        _triggerSelection();
+      }
+    });
+  }
+
+  void _handleDragEnd() {
+    if (!_isDragging) return;
+    
+    setState(() {
+      _isDragging = false;
+      if (_dragProgress < 0.7) {
+        _dragOffset = Offset.zero;
+        _dragProgress = 0.0;
+        _isStaySelected = false;
+        _isExitSelected = false;
+      }
+    });
+  }
+
+  void _triggerSelection() {
+    if (_isStaySelected) {
+      Navigator.pop(context);
+    } else if (_isExitSelected) {
+      SystemNavigator.pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.all(20),
+      child: Container(
+        width: 420,
+        height: 520,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0A0F1F),
+          borderRadius: BorderRadius.circular(40),
+          border: Border.all(
+            color: const Color(0xFF4DA3FF).withOpacity(0.15),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4DA3FF).withOpacity(0.08),
+              blurRadius: 60,
+              spreadRadius: 10,
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: _glowAnimation,
+                builder: (context, child) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(40),
+                      gradient: RadialGradient(
+                        colors: [
+                          const Color(0xFF4DA3FF).withOpacity(0.08 * _glowAnimation.value),
+                          Colors.transparent,
+                        ],
+                        stops: const [0.0, 0.6],
+                        center: Alignment.center,
+                        radius: 0.8,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 3,
+              child: Container(
+                decoration: const BoxDecoration(
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(40),
+                    topRight: Radius.circular(40),
+                  ),
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF4DA3FF), Color(0xFF7C5CFC), Color(0xFF4DA3FF)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                ),
+              ),
+            ),
+            
+            Positioned(
+              top: 40,
+              left: 24,
+              right: 24,
+              child: Column(
+                children: [
+                  const Text(
+                    'Exit ChatXAP?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Drag a button to the center to select',
+                    style: TextStyle(
+                      color: const Color(0xFF9CA3AF).withOpacity(0.8),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            Positioned(
+              top: 100,
+              left: 0,
+              right: 0,
+              bottom: 20,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  AnimatedBuilder(
+                    animation: _glowAnimation,
+                    builder: (context, child) {
+                      return Container(
+                        width: _radius * 2 + _buttonSize,
+                        height: _radius * 2 + _buttonSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(0xFF4DA3FF).withOpacity(0.2 * _glowAnimation.value),
+                            width: 2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF4DA3FF).withOpacity(0.15 * _glowAnimation.value),
+                              blurRadius: 40,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  
+                  AnimatedBuilder(
+                    animation: _pulseAnimation,
+                    builder: (context, child) {
+                      return Stack(
+                        children: List.generate(12, (index) {
+                          final angle = (index / 12) * 2 * pi;
+                          final x = _radius * cos(angle);
+                          final y = _radius * sin(angle);
+                          return Positioned(
+                            left: _radius + x - 3,
+                            top: _radius + y - 3,
+                            child: Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: const Color(0xFF4DA3FF).withOpacity(0.3 * _pulseAnimation.value),
+                              ),
+                            ),
+                          );
+                        }),
+                      );
+                    },
+                  ),
+                  
+                  Container(
+                    width: _centerZoneRadius * 2,
+                    height: _centerZoneRadius * 2,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.03),
+                      border: Border.all(
+                        color: const Color(0xFF4DA3FF).withOpacity(0.1),
+                        width: 1,
+                      ),
+                    ),
+                    child: Center(
+                      child: Icon(
+                        Icons.check_circle_rounded,
+                        color: const Color(0xFF4DA3FF).withOpacity(0.3),
+                        size: 30,
+                      ),
+                    ),
+                  ),
+                  
+                  if (_dragProgress > 0.5)
+                    Center(
+                      child: AnimatedOpacity(
+                        opacity: _dragProgress > 0.5 ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Text(
+                          _isStaySelected ? '✓ Stay' : _isExitSelected ? '✕ Exit' : '',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  
+                  _buildButton(
+                    position: const Offset(-1, 0),
+                    label: 'Stay',
+                    color: const Color(0xFF4DA3FF),
+                    isSelected: _isStaySelected,
+                    isHovered: _isStayHovered,
+                    onDragStart: _handleDragStart,
+                    onDragUpdate: _handleDragUpdate,
+                    onDragEnd: _handleDragEnd,
+                  ),
+                  
+                  _buildButton(
+                    position: const Offset(1, 0),
+                    label: 'Exit',
+                    color: const Color(0xFFE74C3C),
+                    isSelected: _isExitSelected,
+                    isHovered: _isExitHovered,
+                    onDragStart: _handleDragStart,
+                    onDragUpdate: _handleDragUpdate,
+                    onDragEnd: _handleDragEnd,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildButton({
+    required Offset position,
+    required String label,
+    required Color color,
+    required bool isSelected,
+    required bool isHovered,
+    required Function(Offset) onDragStart,
+    required Function(Offset) onDragUpdate,
+    required VoidCallback onDragEnd,
+  }) {
+    final baseX = _radius * position.dx;
+    final baseY = _radius * position.dy;
+    
+    final dragX = _isDragging ? _dragOffset.dx - (_radius + _buttonSize / 2) : 0;
+    final dragY = _isDragging ? _dragOffset.dy - (_radius + _buttonSize / 2) : 0;
+    
+    final currentX = _isDragging ? _radius + dragX : baseX + _radius;
+    final currentY = _isDragging ? _radius + dragY : baseY + _radius;
+    
+    return AnimatedBuilder(
+      animation: _pulseAnimation,
+      builder: (context, child) {
+        return Positioned(
+          left: currentX - _buttonSize / 2,
+          top: currentY - _buttonSize / 2,
+          child: GestureDetector(
+            onPanStart: (details) {
+              onDragStart(details.localPosition);
+            },
+            onPanUpdate: (details) {
+              onDragUpdate(details.localPosition);
+            },
+            onPanEnd: (_) => onDragEnd(),
+            child: MouseRegion(
+              onEnter: () {
+                setState(() {
+                  if (label == 'Stay') {
+                    _isStayHovered = true;
+                    _isExitHovered = false;
+                  } else {
+                    _isExitHovered = true;
+                    _isStayHovered = false;
+                  }
+                });
+              },
+              onExit: () {
+                setState(() {
+                  if (label == 'Stay') {
+                    _isStayHovered = false;
+                  } else {
+                    _isExitHovered = false;
+                  }
+                });
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: _buttonSize,
+                height: _buttonSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isSelected ? color.withOpacity(0.9) : color,
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withOpacity(0.4),
+                      blurRadius: isSelected ? 40 : 20,
+                      spreadRadius: isSelected ? 8 : 0,
+                    ),
+                    if (isSelected)
+                      BoxShadow(
+                        color: color.withOpacity(0.6),
+                        blurRadius: 60,
+                        spreadRadius: 4,
+                      ),
+                  ],
+                  gradient: isSelected ? null : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      color.withOpacity(0.9),
+                      color.withOpacity(0.6),
+                    ],
+                  ),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (!isSelected)
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              Colors.white.withOpacity(0.2),
+                              Colors.transparent,
+                            ],
+                            stops: const [0.0, 0.6],
+                          ),
+                        ),
+                      ),
+                    
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    
+                    if (isSelected)
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.5),
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
