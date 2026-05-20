@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/scheduler.dart'; // IMPORTANT: Add this
+import 'package:flutter/scheduler.dart'; // ✅ CORRECT IMPORT
 import 'game_audio.dart';
 import 'game_particles.dart';
 
@@ -15,7 +15,6 @@ class NovaBlasterGame extends StatefulWidget {
 }
 
 class _NovaBlasterGameState extends State<NovaBlasterGame> {
-  // ── REMOVED Ticker - using SchedulerBinding instead ──
   bool _isRunning = true;
   
   double _width = 0, _height = 0;
@@ -39,8 +38,7 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> {
   double _comboTimer = 0, _enemySpawnTimer = 0;
   double _enemySpawnDelay = 1.0;
   
-  // ── Frame tracking ──
-  Duration _lastTime = Duration.zero;
+  int _lastFrameTime = 0;
 
   @override
   void initState() {
@@ -48,8 +46,6 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> {
     _particles = ParticleSystem();
     GameAudio.initialize();
     _initParallax();
-    
-    // ── Start game loop using SchedulerBinding ──
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _gameLoop();
     });
@@ -75,7 +71,6 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> {
     }
   }
 
-  // ── Game loop using SchedulerBinding ──
   void _gameLoop() {
     if (!_isRunning) return;
     if (!_isPlaying || _isPaused || _isGameOver) {
@@ -83,13 +78,13 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> {
       return;
     }
     
-    final now = DateTime.now();
-    final delta = _lastTime == Duration.zero 
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final delta = _lastFrameTime == 0 
         ? 0.016 
-        : (now.difference(_lastTime).inMilliseconds / 1000.0);
-    _lastTime = DateTime.now();
+        : (now - _lastFrameTime) / 1000.0;
+    _lastFrameTime = now;
     
-    // ── Game update logic ──
+    // ── Game update ──
     for (final star in _parallaxStars) {
       star.y += star.speed * delta;
       if (star.y > _height) {
@@ -142,7 +137,6 @@ class _NovaBlasterGameState extends State<NovaBlasterGame> {
     
     setState(() {});
     
-    // ── Schedule next frame ──
     SchedulerBinding.instance.addPostFrameCallback((_) => _gameLoop());
   }
 
