@@ -8,6 +8,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:721143916949:android:6efafd5621415e744a2e9c",
+        "android_client_info": {
+          "package_name": "com.tlyfe.chatxap"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBxOL-gS-dnfoBh9SXj773F2hrtIV7nTrE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:721143916949:android:ff8f98dd12d678694a2e9c",
         "android_client_info": {
           "package_name": "com.tlyfe.chatxap2"
