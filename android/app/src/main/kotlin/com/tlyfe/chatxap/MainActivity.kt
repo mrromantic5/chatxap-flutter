@@ -1,4 +1,4 @@
-package com.tlyfe.chatxap2
+package com.tlyfe.chatxap
 
 import io.flutter.embedding.android.FlutterActivity
 
