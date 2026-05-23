@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- New DM shortcut -->
+    <shortcut
+        android:shortcutId="new_chat"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new_chat_short"
+        android:shortcutLongLabel="@string/shortcut_new_chat_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chatxap://shortcut/new_chat"
+            android:targetPackage="com.tlyfe.chatxap"
+            android:targetClass="com.tlyfe.chatxap.MainActivity"/>
+        <categories android:name="android.shortcut.conversation"/>
+    </shortcut>
+
+    <!-- Public chat shortcut -->
+    <shortcut
+        android:shortcutId="public_chat"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_global_short"
+        android:shortcutLongLabel="@string/shortcut_global_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chatxap://shortcut/public_chat"
+            android:targetPackage="com.tlyfe.chatxap"
+            android:targetClass="com.tlyfe.chatxap.MainActivity"/>
+        <categories android:name="android.shortcut.conversation"/>
+    </shortcut>
+
+    <!-- Updates shortcut -->
+    <shortcut
+        android:shortcutId="updates"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_updates_short"
+        android:shortcutLongLabel="@string/shortcut_updates_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chatxap://shortcut/updates"
+            android:targetPackage="com.tlyfe.chatxap"
+            android:targetClass="com.tlyfe.chatxap.MainActivity"/>
+        <categories android:name="android.shortcut.conversation"/>
+    </shortcut>
+</shortcuts>

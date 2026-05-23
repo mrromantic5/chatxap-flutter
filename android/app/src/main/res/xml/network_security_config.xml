@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- ChatXAP domains — HTTPS only, no cleartext -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">c.x.t-lyfe.com.ng</domain>
+        <domain includeSubdomains="true">t-lyfe.com.ng</domain>
+        <domain includeSubdomains="true">chatxap-realtime.onrender.com</domain>
+        <domain includeSubdomains="true">chatxap-game-server.onrender.com</domain>
+        <domain includeSubdomains="true">pub-abef3ded14bb475bab5e6cbee8e2a7d5.r2.dev</domain>
+        <domain includeSubdomains="true">firebase.googleapis.com</domain>
+        <domain includeSubdomains="true">firebaseinstallations.googleapis.com</domain>
+        <domain includeSubdomains="true">fcm.googleapis.com</domain>
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>
