@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'app_settings.dart';
+import 'badge_service.dart';
 
 class NotificationHandler {
   static final FlutterLocalNotificationsPlugin _plugin =
@@ -11,48 +14,72 @@ class NotificationHandler {
 
   static InAppWebViewController? _webCtrl;
 
-  static const String _channelId = 'chatxap_msg';
-  static const String _channelName = 'ChatXAP Messages';
-  static const String _channelIdCall = 'chatxap_call';
-  static const String _channelNameCall = 'ChatXAP Calls';
-  static const String _replyActionId = 'cx_reply';
-  static const String _readActionId = 'cx_read';
+  // Tracks which conversation is currently open so we can suppress
+  // duplicate notifications when user is already viewing that chat
+  static String? _activeConvId;
+
+  // ── Channel IDs ─────────────────────────────────────────────────
+  static const _chMsg     = 'chatxap_msg';
+  static const _chDm      = 'chatxap_dm';
+  static const _chGroup   = 'chatxap_group';
+  static const _chMention = 'chatxap_mention';
+  static const _chCall    = 'chatxap_call';
+  static const _chSystem  = 'chatxap_system';
+
+  static const _replyActionId = 'cx_reply';
+  static const _readActionId  = 'cx_read';
 
   static void setWebController(InAppWebViewController ctrl) {
     _webCtrl = ctrl;
   }
 
-  // ── Initialize channels and permissions ─────────────────────────
+  static void setActiveConversation(String? convId) {
+    _activeConvId = convId;
+  }
+
+  // ── Initialize all notification channels ────────────────────────
   static Future<void> initialize() async {
-    // Message channel — high priority
-    const msgChannel = AndroidNotificationChannel(
-      _channelId,
-      _channelName,
-      description: 'ChatXAP message notifications',
-      importance: Importance.max,
-      enableVibration: true,
-      playSound: true,
-      showBadge: true,
-    );
-
-    // Call channel — max priority for voice/video calls
-    const callChannel = AndroidNotificationChannel(
-      _channelIdCall,
-      _channelNameCall,
-      description: 'ChatXAP call notifications',
-      importance: Importance.max,
-      enableVibration: true,
-      playSound: true,
-      showBadge: true,
-    );
-
     final androidImpl = _plugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
-    await androidImpl?.createNotificationChannel(msgChannel);
-    await androidImpl?.createNotificationChannel(callChannel);
 
-    // Init settings
+    // Create one channel per notification type — user can manage each
+    await androidImpl?.createNotificationChannel(const AndroidNotificationChannel(
+        _chDm, 'Direct Messages',
+        description: 'Private message notifications',
+        importance: Importance.max, enableVibration: true,
+        playSound: true, showBadge: true));
+
+    await androidImpl?.createNotificationChannel(const AndroidNotificationChannel(
+        _chMsg, 'Global Chat',
+        description: 'Public chat notifications',
+        importance: Importance.high, enableVibration: true,
+        playSound: true, showBadge: true));
+
+    await androidImpl?.createNotificationChannel(const AndroidNotificationChannel(
+        _chGroup, 'Groups & Channels',
+        description: 'Group and channel message notifications',
+        importance: Importance.high, enableVibration: true,
+        playSound: true, showBadge: true));
+
+    await androidImpl?.createNotificationChannel(const AndroidNotificationChannel(
+        _chMention, 'Mentions',
+        description: 'When someone mentions you',
+        importance: Importance.max, enableVibration: true,
+        playSound: true, showBadge: true));
+
+    await androidImpl?.createNotificationChannel(const AndroidNotificationChannel(
+        _chCall, 'Calls',
+        description: 'Incoming call notifications',
+        importance: Importance.max, enableVibration: true,
+        playSound: true, showBadge: false));
+
+    await androidImpl?.createNotificationChannel(const AndroidNotificationChannel(
+        _chSystem, 'System',
+        description: 'App updates and system alerts',
+        importance: Importance.low, enableVibration: false,
+        playSound: false, showBadge: false));
+
     const initSettings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
@@ -63,229 +90,195 @@ class NotificationHandler {
       onDidReceiveBackgroundNotificationResponse: _onBackgroundResponse,
     );
 
-    // Request FCM permission
     await FirebaseMessaging.instance.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
+      alert: true, badge: true, sound: true, provisional: false,
     );
 
-    // We show our own foreground notifications — disable default system ones
     await FirebaseMessaging.instance
         .setForegroundNotificationPresentationOptions(
-      alert: false,
-      badge: true,
-      sound: false,
+      alert: false, badge: true, sound: false,
     );
   }
 
-  // ── Show notification ────────────────────────────────────────────
+  // ── Main show notification entry point ───────────────────────────
   static Future<void> showNotification(RemoteMessage message) async {
     final n = message.notification;
     final d = message.data;
 
-    final String title = n?.title ?? d['title'] ?? 'ChatXAP';
-    final String body = n?.body ?? d['body'] ?? '';
-    final String type = d['type'] ?? 'message';
-    // sender_name now sent from backend (html-decoded). Fallback to title.
-    final String senderName = (d['sender_name'] ?? '').isNotEmpty ? d['sender_name']! : title;
-    final String convId =
-        d['conversation_id'] ?? d['group_id'] ?? d['channel_id'] ?? '';
+    final String title   = n?.title ?? d['title'] ?? 'ChatXAP';
+    final String body    = n?.body  ?? d['body']  ?? '';
+    final String type    = d['type'] ?? 'message';
+    final String convId  = d['conversation_id'] ?? d['group_id'] ??
+                           d['channel_id'] ?? '';
+    final String senderName = (d['sender_name'] ?? '').isNotEmpty
+        ? d['sender_name']! : title;
 
-    // Determine notification ID — same conversation = same notif ID
-    // so messages from same person stack up like WhatsApp
+    // ── Smart suppression: skip if this chat is open ───────────────
+    if (AppSettings.notifSuppress &&
+        convId.isNotEmpty &&
+        convId == _activeConvId) {
+      return;
+    }
+
+    // ── Notification ID — same conv = same ID (stacks like WhatsApp)
     final int notifId = convId.isNotEmpty
         ? convId.hashCode.abs() % 99998
         : DateTime.now().millisecondsSinceEpoch % 99998;
 
+    // ── Message preview setting ─────────────────────────────────────
+    final String displayBody = AppSettings.messagePreview
+        ? body : 'New message';
+
+    // ── Haptic on notification receive ──────────────────────────────
+    if (AppSettings.hapticFeedback) {
+      try { HapticFeedback.lightImpact(); } catch (_) {}
+    }
+
+    // ── Increment badge ─────────────────────────────────────────────
+    await BadgeService.increment();
+
     final bool isCall = type == 'incoming_call' || type == 'voice_call';
 
     if (isCall) {
-      await _showCallNotification(notifId, title, body, d);
+      await _showCallNotification(notifId, title, displayBody, d);
     } else {
       await _showMessageNotification(
-          notifId, title, body, type, senderName, convId, d);
+          notifId, title, displayBody, type, senderName, convId, d);
     }
   }
 
-  // ── Message notification (WhatsApp style) ───────────────────────
+  // ── Message notification — WhatsApp style ───────────────────────
   static Future<void> _showMessageNotification(
-    int notifId,
-    String title,
-    String body,
-    String type,
-    String senderName,
-    String convId,
+    int notifId, String title, String body,
+    String type, String senderName, String convId,
     Map<String, dynamic> d,
   ) async {
-    final person = Person(
-      name: senderName,
-      important: true,
-      bot: false,
-    );
+    // Pick correct channel per type
+    final channelId = (type == 'private_message' || type == 'dm')
+        ? _chDm
+        : (type == 'group_message' || type == 'channel_message')
+            ? _chGroup
+            : _chMsg;
 
-    // Build messaging style — enables stacking like WhatsApp
+    final channelName = (type == 'private_message' || type == 'dm')
+        ? 'Direct Messages'
+        : (type == 'group_message' || type == 'channel_message')
+            ? 'Groups & Channels'
+            : 'Global Chat';
+
+    final person = Person(name: senderName, important: true, bot: false);
+
     final msgStyle = MessagingStyleInformation(
       person,
       conversationTitle: _conversationTitle(type, d),
-      groupConversation:
-          type == 'public_message' || type == 'group_message',
-      messages: [
-        Message(body, DateTime.now(), person),
-      ],
+      groupConversation: type == 'public_message' || type == 'group_message',
+      messages: [Message(body, DateTime.now(), person)],
     );
 
     final androidDetails = AndroidNotificationDetails(
-      _channelId,
-      _channelName,
+      channelId, channelName,
       importance: Importance.max,
       priority: Priority.high,
       styleInformation: msgStyle,
       color: const Color(0xFF4DA3FF),
       enableLights: true,
       ledColor: const Color(0xFF4DA3FF),
-      ledOnMs: 500,
-      ledOffMs: 1000,
-      largeIcon:
-          const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
-      enableVibration: true,
+      ledOnMs: 500, ledOffMs: 1000,
+      largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+      enableVibration: AppSettings.hapticFeedback,
       playSound: true,
       autoCancel: true,
       ongoing: false,
-      // Inline Reply action — exactly like WhatsApp
       actions: [
         AndroidNotificationAction(
-          _replyActionId,
-          'Reply',
-          inputs: [
-            const AndroidNotificationActionInput(
-              label: 'Type a reply…',
-              allowFreeFormInput: true,
-            ),
-          ],
+          _replyActionId, 'Reply',
+          inputs: [const AndroidNotificationActionInput(
+            label: 'Type a reply…', allowFreeFormInput: true)],
           showsUserInterface: false,
           cancelNotification: false,
-          icon: DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+          icon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
         ),
         const AndroidNotificationAction(
-          _readActionId,
-          '✓ Mark Read',
-          showsUserInterface: false,
-          cancelNotification: true,
+          _readActionId, '✓ Mark Read',
+          showsUserInterface: false, cancelNotification: true,
         ),
       ],
     );
 
-    await _plugin.show(
-      notifId,
-      title,
-      body,
-      NotificationDetails(android: androidDetails),
-      payload: '$type|$convId',
-    );
+    await _plugin.show(notifId, title, body,
+        NotificationDetails(android: androidDetails),
+        payload: '$type|$convId');
   }
 
   // ── Call notification ────────────────────────────────────────────
   static Future<void> _showCallNotification(
-    int notifId,
-    String title,
-    String body,
-    Map<String, dynamic> d,
+    int notifId, String title, String body, Map<String, dynamic> d,
   ) async {
     final androidDetails = AndroidNotificationDetails(
-      _channelIdCall,
-      _channelNameCall,
+      _chCall, 'Calls',
       importance: Importance.max,
       priority: Priority.max,
       fullScreenIntent: true,
       ongoing: true,
       autoCancel: false,
       color: const Color(0xFF4DA3FF),
-      largeIcon:
-          const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+      largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
       actions: [
-        const AndroidNotificationAction(
-          'cx_accept_call',
-          '📞 Accept',
-          showsUserInterface: true,
-          cancelNotification: true,
-        ),
-        const AndroidNotificationAction(
-          'cx_decline_call',
-          '❌ Decline',
-          showsUserInterface: false,
-          cancelNotification: true,
-        ),
+        const AndroidNotificationAction('cx_accept_call', '📞 Accept',
+            showsUserInterface: true, cancelNotification: true),
+        const AndroidNotificationAction('cx_decline_call', '❌ Decline',
+            showsUserInterface: false, cancelNotification: true),
       ],
     );
 
-    await _plugin.show(
-      notifId,
-      title,
-      body,
-      NotificationDetails(android: androidDetails),
-      payload: 'incoming_call|${d['caller_id'] ?? ''}',
-    );
+    await _plugin.show(notifId, title, body,
+        NotificationDetails(android: androidDetails),
+        payload: 'incoming_call|${d['caller_id'] ?? ''}');
   }
 
-  static String? _conversationTitle(
-      String type, Map<String, dynamic> d) {
-    if (type == 'public_message') return 'Global Chat';
-    if (type == 'group_message') return d['group_name'] as String?;
+  static String? _conversationTitle(String type, Map<String, dynamic> d) {
+    if (type == 'public_message')  return 'Global Chat';
+    if (type == 'group_message')   return d['group_name'] as String?;
     if (type == 'channel_message') return d['channel_name'] as String?;
     return null;
   }
 
-  // ── Foreground notification tap / action ─────────────────────────
-  static void _onNotificationResponse(NotificationResponse response) {
-    final payload = response.payload ?? '';
-    final actionId = response.actionId ?? '';
+  // ── Notification response handlers ──────────────────────────────
+  static void _onNotificationResponse(NotificationResponse r) {
+    final payload  = r.payload ?? '';
+    final actionId = r.actionId ?? '';
 
     if (actionId == _replyActionId) {
-      final text = response.input?.trim() ?? '';
+      final text = r.input?.trim() ?? '';
       if (text.isNotEmpty) _sendReply(text, payload);
       return;
     }
+    if (actionId == _readActionId)    return;
+    if (actionId == 'cx_accept_call') { _navigateFromPayload(payload); return; }
+    if (actionId == 'cx_decline_call') return;
 
-    if (actionId == _readActionId) {
-      // Just cancel the notification — already done by cancelNotification: true
-      return;
-    }
-
-    if (actionId == 'cx_accept_call') {
-      _navigateFromPayload(payload);
-      return;
-    }
-
-    // Normal tap — navigate to the right chat
+    // Clear badge when user taps notification
+    BadgeService.clear();
     _navigateFromPayload(payload);
   }
 
-  // ── Background notification action ──────────────────────────────
   @pragma('vm:entry-point')
-  static void _onBackgroundResponse(NotificationResponse response) {
-    final actionId = response.actionId ?? '';
-    if (actionId == _replyActionId) {
-      final text = response.input?.trim() ?? '';
-      if (text.isNotEmpty) {
-        _sendReply(text, response.payload ?? '');
-      }
+  static void _onBackgroundResponse(NotificationResponse r) {
+    if (r.actionId == _replyActionId) {
+      final text = r.input?.trim() ?? '';
+      if (text.isNotEmpty) _sendReply(text, r.payload ?? '');
     }
   }
 
   // ── Send inline reply ────────────────────────────────────────────
   static Future<void> _sendReply(String text, String payload) async {
-    final parts = payload.split('|');
-    final type = parts.isNotEmpty ? parts[0] : '';
+    final parts  = payload.split('|');
+    final type   = parts.isNotEmpty ? parts[0] : '';
     final convId = parts.length > 1 ? parts[1] : '';
-
-    // Always use direct HTTP — most reliable for notification reply
-    // Works whether app is open, backgrounded, or closed
     await _postReplyDirect(text, type, convId);
   }
 
-  // ── Direct HTTP post — works open, backgrounded, or closed ────────────────
+  // ── Direct HTTP reply with session cookie ────────────────────────
   static Future<void> _postReplyDirect(
       String text, String type, String convId) async {
     try {
@@ -309,10 +302,10 @@ class NotificationHandler {
         bodyJson = '{"message":"$escaped"}';
       }
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs  = await SharedPreferences.getInstance();
       final cookie = prefs.getString('session_cookie') ?? '';
 
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+      final client  = HttpClient()..connectionTimeout = const Duration(seconds: 15);
       final request = await client.postUrl(Uri.parse(endpoint));
       request.headers.set('Content-Type', 'application/json');
       request.headers.set('X-Requested-With', 'XMLHttpRequest');
@@ -329,9 +322,9 @@ class NotificationHandler {
   static void _navigateFromPayload(String payload) {
     if (_webCtrl == null) return;
     final parts = payload.split('|');
-    final type = parts.isNotEmpty ? parts[0] : '';
-    final id = parts.length > 1 ? parts[1] : '';
-    const base = 'https://c.x.t-lyfe.com.ng';
+    final type  = parts.isNotEmpty ? parts[0] : '';
+    final id    = parts.length > 1 ? parts[1] : '';
+    const base  = 'https://c.x.t-lyfe.com.ng';
 
     String url = '$base/rc.html';
     if ((type == 'private_message' || type == 'dm') && id.isNotEmpty) {

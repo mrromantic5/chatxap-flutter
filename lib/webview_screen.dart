@@ -8,6 +8,14 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:math';
 import 'notification_handler.dart';
 import 'game_widget.dart';
+import 'app_settings.dart';
+import 'badge_service.dart';
+import 'biometric_lock.dart';
+import 'native_settings_page.dart';
+import 'package:share_plus/share_plus.dart';
+import 'update_service.dart';
+import 'remote_config_service.dart';
+import 'pip_service.dart';
 
 class WebViewScreen extends StatefulWidget {
   final String? initialUrl;
@@ -20,12 +28,19 @@ class WebViewScreen extends StatefulWidget {
 class _WebViewScreenState extends State<WebViewScreen>
     with WidgetsBindingObserver {
   InAppWebViewController? _webCtrl;
-  bool _isLoading = true;
-  bool _hasError = false;
+  bool _isLoading  = true;
+  bool _hasError   = false;
   bool _hasInternet = true;
-  double _progress = 0;
+  double _progress  = 0;
+
+  // ── Lock state ──────────────────────────────────────────────────
+  bool _locked = false;
+  DateTime? _backgroundedAt;
 
   static const String _baseUrl = 'https://c.x.t-lyfe.com.ng';
+
+  // ── Screenshot prevention flag (applied on every build) ─────────
+  bool get _screenshotBlocked => AppSettings.screenshotBlock;
 
   @override
   void initState() {
@@ -33,12 +48,71 @@ class _WebViewScreenState extends State<WebViewScreen>
     WidgetsBinding.instance.addObserver(this);
     _listenToFCM();
     _monitorConnectivity();
+    _applyScreenshotPrevention();
+    // Startup checks in background
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(const Duration(seconds: 3));
+      if (!mounted) return;
+      // Force update check
+      final blocked = await RemoteConfigService.checkForceUpdate(context);
+      if (blocked) return;
+      // Maintenance check
+      await RemoteConfigService.checkMaintenance(context);
+      // Play Store flexible update
+      await Future.delayed(const Duration(seconds: 10));
+      if (mounted) UpdateService.checkForUpdate(context);
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  // ── App lifecycle — handles auto-lock ──────────────────────────
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _backgroundedAt = DateTime.now();
+      // Record timestamp for auto-lock
+      if (AppSettings.autoLock) {
+        AppSettings.setLastLocked(
+            DateTime.now().millisecondsSinceEpoch);
+      }
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      // Clear badge when user opens app
+      BadgeService.clear();
+
+      // Check if we should lock
+      if (AppSettings.biometricLock) {
+        final shouldLock = AppSettings.autoLock
+            ? AppSettings.isAutoLockExpired()
+            : (_backgroundedAt != null &&
+                DateTime.now().difference(_backgroundedAt!) >
+                    const Duration(seconds: 30));
+        if (shouldLock && !_locked) {
+          setState(() => _locked = true);
+        }
+      }
+
+      // Screenshot prevention — re-apply on resume
+      _applyScreenshotPrevention();
+    }
+  }
+
+  static const _mainChannel = MethodChannel('com.tlyfe.chatxap/pip');
+
+  Future<void> _applyScreenshotPrevention() async {
+    try {
+      await _mainChannel.invokeMethod('setSecureFlag',
+          {'secure': AppSettings.screenshotBlock});
+    } catch (_) {}
   }
 
   // ── Connectivity monitor ────────────────────────────────────────
@@ -49,8 +123,8 @@ class _WebViewScreenState extends State<WebViewScreen>
       if (connected && !_hasInternet) {
         setState(() {
           _hasInternet = true;
-          _hasError = false;
-          _isLoading = true;
+          _hasError    = false;
+          _isLoading   = true;
         });
         _webCtrl?.reload();
       } else if (!connected) {
@@ -66,12 +140,14 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
 
     FirebaseMessaging.onMessageOpenedApp.listen((msg) {
+      BadgeService.clear();
       _navigateFromMessage(msg);
     });
 
     FirebaseMessaging.instance.getInitialMessage().then((msg) {
       if (msg != null) {
         Future.delayed(const Duration(seconds: 3), () {
+          BadgeService.clear();
           _navigateFromMessage(msg);
         });
       }
@@ -85,37 +161,26 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
   }
 
-  // ── Register Flutter FCM token with ChatXAP backend ─────────────
+  // ── Register FCM token with backend ─────────────────────────────
   Future<void> _registerTokenWithBackend(String token) async {
     try {
-      final safeToken = token.replaceAll("'", "\'").replaceAll("\n", "");
+      final safeToken = token.replaceAll("'", "\\'").replaceAll("\n", "");
       await _webCtrl?.evaluateJavascript(source: '''
 (function() {
   try {
     var t = '$safeToken';
     var already = localStorage.getItem('cx_flutter_tok');
-    if (already === t) return; // already registered this token
+    if (already === t) return;
     fetch('/backend/push_subscribe.php', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-ChatXAP-App': '1'
-      },
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type':'application/json',
+                'X-Requested-With':'XMLHttpRequest','X-ChatXAP-App':'1'},
       body: JSON.stringify({ token: t, device_type: 'android' })
-    })
-    .then(function(r){ return r.json(); })
+    }).then(function(r){ return r.json(); })
     .then(function(d){
-      if(d && d.success){
-        localStorage.setItem('cx_flutter_tok', t);
-        console.log('[ChatXAP] Flutter FCM registered:', d.action, 'user:', d.user_id);
-      } else {
-        console.warn('[ChatXAP] FCM register failed:', d ? d.error : 'unknown');
-      }
-    })
-    .catch(function(e){ console.warn('[ChatXAP] FCM register error:', e); });
-  } catch(ex) { console.warn('[ChatXAP] FCM register exception:', ex); }
+      if(d && d.success) localStorage.setItem('cx_flutter_tok', t);
+    }).catch(function(){});
+  } catch(ex) {}
 })();
 ''');
     } catch (_) {}
@@ -123,11 +188,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   void _navigateFromMessage(RemoteMessage msg) {
     if (_webCtrl == null) return;
-    final d = msg.data;
-    final type = d['type'] ?? '';
-    final convId = d['conversation_id'] ?? '';
+    final d       = msg.data;
+    final type    = d['type'] ?? '';
+    final convId  = d['conversation_id'] ?? '';
     final groupId = d['group_id'] ?? '';
-    final chId = d['channel_id'] ?? '';
+    final chId    = d['channel_id'] ?? '';
 
     String url = '$_baseUrl/rc.html';
     if ((type == 'private_message' || type == 'dm') && convId.isNotEmpty) {
@@ -155,28 +220,23 @@ class _WebViewScreenState extends State<WebViewScreen>
     window.FLUTTER_FCM_TOKEN = '$safe';
     window.IS_FLUTTER_APP = true;
     window.FLUTTER_PLATFORM = 'android';
-
-    // Text selection: disable on UI chrome, allow in message bubbles + inputs
     var styleId = 'cx-flutter-sel';
     var prev = document.getElementById(styleId);
     if (prev) prev.remove();
     var s = document.createElement('style');
     s.id = styleId;
     s.textContent =
-      'body, .hdr, nav, .nav, .btm-nav, .topbar, button, ' +
-      'a, label, .mhdr, .muser, .mtime, .sidebar, .menu {' +
-      ' -webkit-user-select:none!important; user-select:none!important }' +
-      '.bub span, .bub p, .bub div, .msg-text, input, textarea, [contenteditable] {' +
-      ' -webkit-user-select:text!important; user-select:text!important }';
+      'body,.hdr,nav,.nav,.btm-nav,.topbar,button,a,label,.mhdr,.muser,.mtime,.sidebar,.menu{' +
+      '-webkit-user-select:none!important;user-select:none!important}' +
+      '.bub span,.bub p,.bub div,.msg-text,input,textarea,[contenteditable]{' +
+      '-webkit-user-select:text!important;user-select:text!important}';
     document.head.appendChild(s);
-
     document.documentElement.style.overscrollBehavior = 'none';
     document.body.style.overscrollBehavior = 'none';
-
     if (typeof window.registerFlutterFCMToken === 'function') {
       window.registerFlutterFCMToken('$safe');
     }
-    window.dispatchEvent(new CustomEvent('flutterFCMToken', {detail: '$safe', bubbles: true}));
+    window.dispatchEvent(new CustomEvent('flutterFCMToken',{detail:'$safe',bubbles:true}));
   } catch(e) {}
 })();
 ''');
@@ -189,6 +249,9 @@ class _WebViewScreenState extends State<WebViewScreen>
       await _registerTokenWithBackend(token);
     }
 
+    // Inject settings + extended bridge
+    final settingsJs = AppSettings.jsSettingsObject;
+
     await _webCtrl?.evaluateJavascript(source: '''
 (function() {
   if (window.__CX_BRIDGE__) return;
@@ -197,13 +260,55 @@ class _WebViewScreenState extends State<WebViewScreen>
   window.FLUTTER_PLATFORM = 'android';
   document.documentElement.style.overscrollBehavior = 'none';
   if (document.body) document.body.style.overscrollBehavior = 'none';
+
+  // Inject settings object
+  $settingsJs
+
+  // Detect active conversation for smart notification suppression
+  (function() {
+    var urlParams = new URLSearchParams(window.location.search);
+    var convId = urlParams.get('conversation_id') || 
+                 urlParams.get('group_id') || 
+                 urlParams.get('channel_id') || '';
+    if (convId) {
+      window.flutter_inappwebview.callHandler('Bridge', 'setActiveConv', convId);
+    }
+    // Clear on page change
+    window.addEventListener('beforeunload', function() {
+      window.flutter_inappwebview.callHandler('Bridge', 'setActiveConv', '');
+    });
+  })();
+
   window.FlutterBridge = {
     getFCMToken: function() { return window.FLUTTER_FCM_TOKEN || ''; },
     openUrl: function(u) {
       try { window.flutter_inappwebview.callHandler('Bridge','openUrl',u); } catch(e){}
+    },
+    openNativeSettings: function() {
+      try { window.flutter_inappwebview.callHandler('Bridge','openNativeSettings'); } catch(e){}
+    },
+    haptic: function(type) {
+      try { window.flutter_inappwebview.callHandler('Bridge','haptic',type||'light'); } catch(e){}
+    },
+    clearBadge: function() {
+      try { window.flutter_inappwebview.callHandler('Bridge','clearBadge'); } catch(e){}
+    },
+    shareText: function(text) {
+      try { window.flutter_inappwebview.callHandler('Bridge','shareText',text); } catch(e){}
+    },
+    shareUrl: function(url, title) {
+      try { window.flutter_inappwebview.callHandler('Bridge','shareUrl',url,title||''); } catch(e){}
+    },
+    enterPiP: function() {
+      try { window.flutter_inappwebview.callHandler('Bridge','enterPiP'); } catch(e){}
+    },
+    getRemoteConfig: async function(key) {
+      try { return await window.flutter_inappwebview.callHandler('Bridge','getRemoteConfig',key); }
+      catch(e){ return null; }
     }
   };
-  // Pass session cookie to Flutter for background notification reply
+
+  // Save session cookie
   try {
     window.flutter_inappwebview.callHandler('Bridge', 'saveSessionCookie', document.cookie);
   } catch(e) {}
@@ -238,12 +343,23 @@ class _WebViewScreenState extends State<WebViewScreen>
     useShouldOverrideUrlLoading: true,
     userAgent:
         'Mozilla/5.0 (Linux; Android 13; ChatXAP) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 ChatXAPNative/1.0',
+        '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 ChatXAPNative/1.1',
     allowsBackForwardNavigationGestures: false,
   );
 
   @override
   Widget build(BuildContext context) {
+    // Screenshot prevention applied via native channel in initState
+
+    // Show biometric lock overlay if locked
+    if (_locked) {
+      return BiometricLockScreen(
+        onUnlocked: () {
+          if (mounted) setState(() => _locked = false);
+        },
+      );
+    }
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -262,7 +378,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                 initialUrlRequest: URLRequest(
                   url: WebUri(widget.initialUrl ?? '$_baseUrl/?app=1'),
                   headers: {
-                    'X-Requested-With': 'ChatXAPNative/1.0',
+                    'X-Requested-With': 'ChatXAPNative/1.1',
                     'X-ChatXAP-App': '1',
                   },
                 ),
@@ -277,8 +393,10 @@ class _WebViewScreenState extends State<WebViewScreen>
                     callback: (args) async {
                       if (args.isEmpty) return null;
                       switch (args[0] as String) {
+
                         case 'getFCMToken':
                           return await FirebaseMessaging.instance.getToken();
+
                         case 'openUrl':
                           if (args.length > 1) {
                             final uri = Uri.tryParse(args[1] as String);
@@ -288,15 +406,98 @@ class _WebViewScreenState extends State<WebViewScreen>
                             }
                           }
                           return null;
+
                         case 'saveSessionCookie':
                           if (args.length > 1) {
                             final prefs = await SharedPreferences.getInstance();
-                            await prefs.setString('session_cookie', args[1] as String);
+                            await prefs.setString(
+                                'session_cookie', args[1] as String);
                           }
                           return null;
+
+                        case 'setActiveConv':
+                          final convId = args.length > 1
+                              ? args[1] as String : '';
+                          NotificationHandler.setActiveConversation(
+                              convId.isEmpty ? null : convId);
+                          return null;
+
+                        case 'openNativeSettings':
+                          if (mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const NativeSettingsPage()),
+                            ).then((_) {
+                              // Re-inject settings after returning
+                              _injectBridge();
+                            });
+                          }
+                          return null;
+
+                        case 'haptic':
+                          if (!AppSettings.hapticFeedback) return null;
+                          final type = args.length > 1
+                              ? args[1] as String : 'light';
+                          switch (type) {
+                            case 'heavy':
+                              HapticFeedback.heavyImpact(); break;
+                            case 'medium':
+                              HapticFeedback.mediumImpact(); break;
+                            case 'selection':
+                              HapticFeedback.selectionClick(); break;
+                            default:
+                              HapticFeedback.lightImpact();
+                          }
+                          return null;
+
+                        case 'clearBadge':
+                          await BadgeService.clear();
+                          return null;
+
+                        case 'shareText':
+                          if (args.length > 1) {
+                            await Share.share(args[1] as String);
+                          }
+                          return null;
+
+                        case 'shareUrl':
+                          if (args.length > 1) {
+                            await Share.share(args[1] as String,
+                                subject: args.length > 2
+                                    ? args[2] as String : 'ChatXAP');
+                          }
+                          return null;
+
+                        case 'enterPiP':
+                          await PiPService.enterPiP();
+                          return null;
+
+                        case 'isPiPSupported':
+                          return await PiPService.isPiPSupported();
+
+                        case 'getRemoteConfig':
+                          if (args.length > 1) {
+                            final key = args[1] as String;
+                            switch (key) {
+                              case 'gamesEnabled':
+                                return RemoteConfigService.gamesEnabled;
+                              case 'aiEnabled':
+                                return RemoteConfigService.aiEnabled;
+                              case 'bannerEnabled':
+                                return RemoteConfigService.bannerEnabled;
+                              case 'bannerMessage':
+                                return RemoteConfigService.bannerMessage;
+                              default:
+                                return null;
+                            }
+                          }
+                          return null;
+
                         case 'closeApp':
                           SystemNavigator.pop();
                           return null;
+
                         default:
                           return null;
                       }
@@ -305,13 +506,11 @@ class _WebViewScreenState extends State<WebViewScreen>
                 },
 
                 onLoadStart: (ctrl, url) {
-                  if (mounted) {
-                    setState(() {
-                      _isLoading = true;
-                      _hasError = false;
-                      _progress = 0;
-                    });
-                  }
+                  if (mounted) setState(() {
+                    _isLoading = true;
+                    _hasError  = false;
+                    _progress  = 0;
+                  });
                 },
 
                 onProgressChanged: (ctrl, progress) {
@@ -321,25 +520,22 @@ class _WebViewScreenState extends State<WebViewScreen>
                 onLoadStop: (ctrl, url) async {
                   if (mounted) setState(() => _isLoading = false);
                   await _injectBridge();
+                  // Clear badge when user views app
+                  await BadgeService.clear();
+                  // Predictive preload — warm up key pages after login
+                  _schedulePreload(ctrl, url?.toString() ?? '');
                 },
 
                 onReceivedError: (ctrl, request, error) {
                   if (request.isForMainFrame == true && mounted) {
-                    setState(() {
-                      _isLoading = false;
-                      _hasError = true;
-                    });
+                    setState(() { _isLoading = false; _hasError = true; });
                   }
                 },
 
                 onReceivedHttpError: (ctrl, request, response) {
                   if (request.isForMainFrame == true &&
-                      (response.statusCode ?? 0) >= 500 &&
-                      mounted) {
-                    setState(() {
-                      _isLoading = false;
-                      _hasError = true;
-                    });
+                      (response.statusCode ?? 0) >= 500 && mounted) {
+                    setState(() { _isLoading = false; _hasError = true; });
                   }
                 },
 
@@ -352,10 +548,7 @@ class _WebViewScreenState extends State<WebViewScreen>
 
                 onGeolocationPermissionsShowPrompt: (ctrl, origin) async {
                   return GeolocationPermissionShowPromptResponse(
-                    origin: origin,
-                    allow: false,
-                    retain: false,
-                  );
+                      origin: origin, allow: false, retain: false);
                 },
 
                 shouldOverrideUrlLoading: (ctrl, action) async {
@@ -368,7 +561,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                       url.contains('onrender.com')) {
                     return NavigationActionPolicy.ALLOW;
                   }
-                  if (url.startsWith('http') || url.startsWith('https')) {
+                  if (url.startsWith('http')) {
                     try {
                       final uri = Uri.parse(url);
                       if (await canLaunchUrl(uri)) {
@@ -395,7 +588,6 @@ class _WebViewScreenState extends State<WebViewScreen>
                   ),
                 ),
 
-              // Error/offline screen
               if (_hasError || !_hasInternet) _buildErrorScreen(),
             ],
           ),
@@ -404,7 +596,6 @@ class _WebViewScreenState extends State<WebViewScreen>
     );
   }
 
-  // ── UPDATED ERROR SCREEN WITH GAME BUTTON ──────────────────────
   Widget _buildErrorScreen() {
     return Container(
       color: const Color(0xFF0A0F1F),
@@ -414,85 +605,56 @@ class _WebViewScreenState extends State<WebViewScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                !_hasInternet
-                    ? Icons.wifi_off_rounded
-                    : Icons.cloud_off_rounded,
-                color: const Color(0xFF4DA3FF),
-                size: 80,
-              ),
+              Icon(!_hasInternet
+                  ? Icons.wifi_off_rounded : Icons.cloud_off_rounded,
+                  color: const Color(0xFF4DA3FF), size: 80),
               const SizedBox(height: 24),
-              Text(
-                !_hasInternet ? 'No Internet' : 'Connection Error',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold),
-              ),
+              Text(!_hasInternet ? 'No Internet' : 'Connection Error',
+                  style: const TextStyle(color: Colors.white,
+                      fontSize: 26, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              Text(
-                !_hasInternet
-                    ? 'ChatXAP needs internet.\nCheck your connection and try again.'
-                    : 'Could not reach the server.\nPlease retry.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: Color(0xFF9CA3AF), fontSize: 15, height: 1.6),
-              ),
+              Text(!_hasInternet
+                  ? 'ChatXAP needs internet.\nCheck your connection and try again.'
+                  : 'Could not reach the server.\nPlease retry.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: Color(0xFF9CA3AF), fontSize: 15, height: 1.6)),
               const SizedBox(height: 30),
-              // ── NEW: Game button (only shows when offline) ──
               if (!_hasInternet)
                 SizedBox(
-                  width: double.infinity,
-                  height: 52,
+                  width: double.infinity, height: 52,
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const GameWidget(),
-                        ),
-                      );
-                    },
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const GameWidget())),
                     icon: const Icon(Icons.gamepad_rounded,
                         color: Colors.white, size: 20),
                     label: const Text('Play NOVA BLASTER Offline',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600)),
+                        style: TextStyle(color: Colors.white,
+                            fontSize: 16, fontWeight: FontWeight.w600)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF7C5CFC),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14)),
-                      elevation: 0,
                     ),
                   ),
                 ),
               const SizedBox(height: 12),
-              // ── Existing Try Again button ──
               SizedBox(
-                width: double.infinity,
-                height: 52,
+                width: double.infinity, height: 52,
                 child: ElevatedButton.icon(
                   onPressed: () {
-                    setState(() {
-                      _hasError = false;
-                      _isLoading = true;
-                    });
+                    setState(() { _hasError = false; _isLoading = true; });
                     _webCtrl?.reload();
                   },
                   icon: const Icon(Icons.refresh_rounded,
                       color: Colors.white, size: 20),
                   label: const Text('Try Again',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600)),
+                      style: TextStyle(color: Colors.white,
+                          fontSize: 16, fontWeight: FontWeight.w600)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4DA3FF),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
-                    elevation: 0,
                   ),
                 ),
               ),
@@ -503,10 +665,28 @@ class _WebViewScreenState extends State<WebViewScreen>
     );
   }
 
-  // ── PREMIUM SAAS-GRADE EXIT DIALOG ──────────────────────────────
+  // ── Predictive preloading ─────────────────────────────────────────
+  void _schedulePreload(InAppWebViewController ctrl, String currentUrl) {
+    // After login page loads → preload the main chat page
+    // After rc.html loads → preload dm list
+    if (currentUrl.contains('login') || currentUrl.contains('index')) {
+      Future.delayed(const Duration(seconds: 2), () async {
+        try {
+          await ctrl.evaluateJavascript(source: '''
+(function(){
+  var link = document.createElement('link');
+  link.rel = 'prefetch';
+  link.href = '/rc.html';
+  document.head.appendChild(link);
+})();
+''');
+        } catch (_) {}
+      });
+    }
+  }
+
   void _showExitDialog() {
     if (!mounted) return;
-    
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -515,6 +695,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     );
   }
 }
+
 
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║           PREMIUM ChatXAP EXIT DIALOG — v2                      ║
