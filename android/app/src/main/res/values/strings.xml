@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ChatXAP</string>
+    <string name="shortcut_new_chat_short">New Chat</string>
+    <string name="shortcut_new_chat_long">Start New Message</string>
+    <string name="shortcut_global_short">Global Chat</string>
+    <string name="shortcut_global_long">Open Global Chat</string>
+    <string name="shortcut_updates_short">Updates</string>
+    <string name="shortcut_updates_long">View Status Updates</string>
+    <string name="shortcut_disabled">ChatXAP shortcuts unavailable</string>
+</resources>
