@@ -7,7 +7,11 @@
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }
 -dontwarn com.google.firebase.**
--dontwarn com.google.android.gms.**
+
+# Crashlytics
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends java.lang.Exception
+-keep class com.google.firebase.crashlytics.** { *; }
 
 # Flutter InAppWebView
 -keep class com.pichillilorenzo.flutter_inappwebview.** { *; }
@@ -17,6 +21,16 @@
 -keep class com.dexterous.** { *; }
 -dontwarn com.dexterous.**
 
+# Local Auth / Biometric
+-keep class io.flutter.plugins.localauth.** { *; }
+-keep class androidx.biometric.** { *; }
+
+# App Badger
+-keep class fr.g123k.flutterapplicationbadger.** { *; }
+
+# In App Update
+-keep class com.google.android.play.core.** { *; }
+
 # AndroidX
 -keep class androidx.** { *; }
 -dontwarn androidx.**
@@ -25,17 +39,10 @@
 -keep class kotlin.** { *; }
 -dontwarn kotlin.**
 
-# Keep notification action receivers
+# Keep receivers
 -keep class * extends android.content.BroadcastReceiver { *; }
 -keep class * extends android.app.Service { *; }
 
-# url_launcher
--keep class io.flutter.plugins.urllauncher.** { *; }
-
-# Connectivity
--keep class dev.fluttercommunity.plus.connectivity.** { *; }
-
 # General
 -keepattributes *Annotation*
--keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
