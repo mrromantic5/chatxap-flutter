@@ -38,7 +38,7 @@ dependencies:
   local_auth: ^2.3.0
 
   # App icon badge count
-  flutter_app_badger: ^1.5.0
+  flutter_launcher_badger: ^0.2.0
 
   # In-app update
   in_app_update: ^4.2.3
