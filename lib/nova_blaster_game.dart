@@ -993,7 +993,7 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context){
     return Scaffold(backgroundColor:_cBg1,body:LayoutBuilder(builder:(_,box){
       final w=box.maxWidth,h=box.maxHeight;
-      if(_gs.sw==0){_gs.initWorld(w,h);_gs.reset();}
+      if(_gs.sw==0){_gs.initWorld(w,h);}  // title screen shows first
       return GestureDetector(
         onPanStart:(d)=>_onDrag(d.localPosition),
         onPanUpdate:(d)=>_onDrag(d.localPosition),
@@ -1014,34 +1014,268 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
     GamePhase.paused  =>_hudPaused(),
   };
 
-  // ── TITLE ─────────────────────────────────────────────────────────────
-  Widget _hudTitle(){
-    final blink=(sin(_gs.titleAnim*2.5)*0.38+0.62).clamp(0.22,1.0);
-    return SizedBox.expand(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
-      const SizedBox(height:24),
-      ShaderMask(shaderCallback:(b)=>const LinearGradient(colors:[Color(0xFF4DA3FF),Color(0xFF00E5FF),Color(0xFF4DA3FF)]).createShader(b),
-        child:const Text('NOVA\nBLASTER',textAlign:TextAlign.center,style:TextStyle(fontSize:62,fontWeight:FontWeight.w900,letterSpacing:7,color:Colors.white,height:1.05))),
-      const SizedBox(height:5),
-      const Text('OFFLINE ARCADE',style:TextStyle(color:_cAccent,fontSize:12,letterSpacing:5.5,fontWeight:FontWeight.w300)),
-      const SizedBox(height:46),
-      Opacity(opacity:blink,child:Container(
-        padding:const EdgeInsets.symmetric(horizontal:36,vertical:13),
-        decoration:BoxDecoration(border:Border.all(color:_cAccent,width:1.5),borderRadius:BorderRadius.circular(32),color:_cAccent.withOpacity(0.09)),
-        child:const Text('▶   TAP TO LAUNCH',style:TextStyle(color:_cAccent,fontSize:15,letterSpacing:3.5,fontWeight:FontWeight.w700)))),
-      const SizedBox(height:30),
-      Container(margin:const EdgeInsets.symmetric(horizontal:38),padding:const EdgeInsets.symmetric(horizontal:20,vertical:14),
-        decoration:BoxDecoration(color:Colors.white.withOpacity(0.04),borderRadius:BorderRadius.circular(14),border:Border.all(color:Colors.white.withOpacity(0.08))),
-        child:const Column(children:[
-          _Hint('DRAG','Move ship anywhere'),SizedBox(height:6),
-          _Hint('AUTO','Guns fire continuously'),SizedBox(height:6),
-          _Hint('TAP', 'Bomb — clears all enemies'),SizedBox(height:6),
-          _Hint('STORE','Top-right: buy upgrades (5⭐ each)'),
-        ])),
-      if(_gs.hi>0)...[const SizedBox(height:22),Row(mainAxisAlignment:MainAxisAlignment.center,children:[const Icon(Icons.emoji_events_rounded,color:_cGold,size:18),const SizedBox(width:6),Text('BEST  ${_gs.hi.toString().padLeft(7,"0")}',style:const TextStyle(color:_cGold,fontSize:16,letterSpacing:3,fontWeight:FontWeight.w700))])],
-      const SizedBox(height:22),
-      TextButton.icon(onPressed:_exit,icon:const Icon(Icons.arrow_back_ios_rounded,color:_cAccent,size:14),label:const Text('Back to ChatXAP',style:TextStyle(color:_cAccent,fontSize:13))),
-    ]));
+  // ── TITLE — SaaS Premium Screen ─────────────────────────────────────
+  Widget _hudTitle() {
+    final t      = _gs.titleAnim;
+    final blink  = (sin(t * 2.5) * 0.38 + 0.62).clamp(0.22, 1.0);
+    final pulse  = (sin(t * 1.8) * 0.5 + 0.5);   // 0..1 for glow intensity
+    final shimmer= (sin(t * 3.0) * 0.5 + 0.5);   // text shimmer phase
+
+    return SizedBox.expand(
+      child: Stack(children: [
+
+        // ── Animated shooting stars ──────────────────────────────────
+        ValueListenableBuilder<int>(
+          valueListenable: _frame,
+          builder: (_, __, ___) => CustomPaint(
+            painter: _ShootingStarPainter(t),
+            size: Size(_gs.sw, _gs.sh),
+          ),
+        ),
+
+        // ── Planet upper right ────────────────────────────────────────
+        Positioned(
+          top: 0, right: -18,
+          child: ValueListenableBuilder<int>(
+            valueListenable: _frame,
+            builder: (_, __, ___) => SizedBox(
+              width: 220, height: 220,
+              child: CustomPaint(painter: _TitlePlanetPainter(t)),
+            ),
+          ),
+        ),
+
+        // ── Main scrollable content ───────────────────────────────────
+        SafeArea(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              children: [
+                // Space for planet
+                const SizedBox(height: 72),
+
+                // ── LOGO with glow ──────────────────────────────────
+                Container(
+                  decoration: BoxDecoration(
+                    boxShadow: [BoxShadow(
+                      color: _cAccent.withOpacity(0.28 + shimmer * 0.14),
+                      blurRadius: 55, spreadRadius: 8,
+                    )],
+                  ),
+                  child: ShaderMask(
+                    shaderCallback: (b) => LinearGradient(
+                      colors: [
+                        const Color(0xFF4DA3FF),
+                        Color.lerp(const Color(0xFF00E5FF), Colors.white, shimmer * 0.3)!,
+                        const Color(0xFF4DA3FF),
+                      ],
+                    ).createShader(b),
+                    child: const Text(
+                      'NOVA
+BLASTER',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 66, fontWeight: FontWeight.w900,
+                        letterSpacing: 8, color: Colors.white, height: 1.04,
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+                // ── Subtitle ───────────────────────────────────────
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Container(width: 28, height: 1, color: _cAccent.withOpacity(0.5)),
+                  const SizedBox(width: 10),
+                  const Text('OFFLINE  ARCADE',
+                    style: TextStyle(color: _cAccent, fontSize: 12,
+                      letterSpacing: 5.5, fontWeight: FontWeight.w300)),
+                  const SizedBox(width: 10),
+                  Container(width: 28, height: 1, color: _cAccent.withOpacity(0.5)),
+                ]),
+
+                const SizedBox(height: 38),
+
+                // ── Feature badges row ─────────────────────────────
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  _titleBadge('🎮 ARCADE',   _cAccent),
+                  const SizedBox(width: 8),
+                  _titleBadge('📡 OFFLINE',  _cCyan),
+                  const SizedBox(width: 8),
+                  _titleBadge('👾 BOSSES',   _cPurple),
+                ]),
+
+                const SizedBox(height: 36),
+
+                // ── Pulsing launch button ──────────────────────────
+                GestureDetector(
+                  onTap: () { _gs.reset(); GameAudio.startBackgroundMusic(); },
+                  child: Stack(alignment: Alignment.center, children: [
+                    // Outer pulse ring
+                    Container(
+                      width: 276 + pulse * 12,
+                      height: 58 + pulse * 12,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(40),
+                        border: Border.all(
+                          color: _cAccent.withOpacity(0.25 - pulse * 0.18),
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                    // Middle ring
+                    Container(
+                      width: 260 + pulse * 6,
+                      height: 54 + pulse * 6,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(36),
+                        border: Border.all(
+                          color: _cAccent.withOpacity(0.18 - pulse * 0.12),
+                          width: 1.0,
+                        ),
+                      ),
+                    ),
+                    // Main button
+                    Opacity(
+                      opacity: blink,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 38, vertical: 15),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(32),
+                          border: Border.all(color: _cAccent, width: 1.6),
+                          color: _cAccent.withOpacity(0.10),
+                          boxShadow: [BoxShadow(
+                            color: _cAccent.withOpacity(0.22 + pulse * 0.18),
+                            blurRadius: 24 + pulse * 18,
+                            spreadRadius: 2,
+                          )],
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.play_arrow_rounded, color: _cAccent, size: 22),
+                          const SizedBox(width: 10),
+                          const Text('TAP  TO  LAUNCH',
+                            style: TextStyle(
+                              color: _cAccent, fontSize: 16,
+                              letterSpacing: 3.5, fontWeight: FontWeight.w700,
+                            )),
+                        ]),
+                      ),
+                    ),
+                  ]),
+                ),
+
+                const SizedBox(height: 34),
+
+                // ── Controls card — glass morphism ─────────────────
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 28),
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white.withOpacity(0.09)),
+                    boxShadow: [BoxShadow(
+                      color: _cAccent.withOpacity(0.05),
+                      blurRadius: 20, spreadRadius: 2,
+                    )],
+                  ),
+                  child: Column(children: [
+                    // Card header
+                    Row(children: [
+                      const Icon(Icons.gamepad_rounded, color: _cAccent, size: 14),
+                      const SizedBox(width: 6),
+                      const Text('HOW TO PLAY',
+                        style: TextStyle(color: _cAccent, fontSize: 10,
+                          fontWeight: FontWeight.w800, letterSpacing: 2)),
+                    ]),
+                    const SizedBox(height: 10),
+                    const Divider(color: Colors.white12, height: 1),
+                    const SizedBox(height: 10),
+                    const _Hint('DRAG',  'Move your ship anywhere'),
+                    const SizedBox(height: 7),
+                    const _Hint('AUTO',  'Ship fires continuously'),
+                    const SizedBox(height: 7),
+                    const _Hint('TAP',   'Detonate bomb (clears wave)'),
+                    const SizedBox(height: 7),
+                    const _Hint('STORE', '→ sidebar: 5 upgrades (5⭐ each)'),
+                    const SizedBox(height: 7),
+                    const _Hint('GUN',   'Reload gun → 4/5/6 bullet spread'),
+                  ]),
+                ),
+
+                const SizedBox(height: 24),
+
+                // ── Stats section ──────────────────────────────────
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 28),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _cGold.withOpacity(0.25)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _statCell(Icons.emoji_events_rounded, _cGold,
+                        'BEST SCORE', _gs.hi > 0
+                          ? _gs.hi.toString().padLeft(7, '0')
+                          : '-------'),
+                      Container(width: 1, height: 36, color: Colors.white12),
+                      _statCell(Icons.military_tech_rounded, _cPurple,
+                        'LEVEL BEST',
+                        _gs.hi > 0 ? 'LV ${_gs.level}' : '--'),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 22),
+
+                // ── Version + back ─────────────────────────────────
+                Text('v4.0  SaaS Edition',
+                  style: TextStyle(color: Colors.white.withOpacity(0.25),
+                    fontSize: 10, letterSpacing: 2)),
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  onPressed: _exit,
+                  icon: const Icon(Icons.arrow_back_ios_rounded,
+                    color: _cAccent, size: 13),
+                  label: const Text('Back to ChatXAP',
+                    style: TextStyle(color: _cAccent, fontSize: 13,
+                      letterSpacing: 0.5)),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ]),
+    );
   }
+
+  Widget _titleBadge(String text, Color col) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+    decoration: BoxDecoration(
+      color: col.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: col.withOpacity(0.38)),
+    ),
+    child: Text(text,
+      style: TextStyle(color: col, fontSize: 10,
+        fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+  );
+
+  Widget _statCell(IconData icon, Color col, String label, String value) =>
+    Column(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, color: col, size: 18),
+      const SizedBox(height: 4),
+      Text(label, style: TextStyle(color: Colors.white.withOpacity(0.45),
+        fontSize: 9, letterSpacing: 1.5)),
+      const SizedBox(height: 2),
+      Text(value, style: TextStyle(color: col, fontSize: 15,
+        fontWeight: FontWeight.w800, letterSpacing: 1.5,
+        fontFamily: 'monospace')),
+    ]);
 
   // ── PLAYING HUD ───────────────────────────────────────────────────────
   Widget _hudPlaying(BoxConstraints b){
@@ -1199,6 +1433,153 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
 // ══════════════════════════════════════════════════════════════════════
 //  RELOAD SIDEBAR BUTTON
 // ══════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════
+//  TITLE SCREEN PAINTERS
+// ══════════════════════════════════════════════════════════════════════
+
+/// Draws the rotating purple planet with ring on the title screen.
+class _TitlePlanetPainter extends CustomPainter {
+  final double t;
+  _TitlePlanetPainter(this.t);
+
+  @override
+  void paint(Canvas c, Size sz) {
+    final cx = sz.width * 0.60;
+    final cy = sz.height * 0.42;
+    final r  = sz.width  * 0.40;
+
+    // Outer atmospheric glow
+    c.drawCircle(Offset(cx, cy), r * 1.55,
+      Paint()
+        ..color = const Color(0xFF4A148C).withOpacity(0.20)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28));
+
+    // Ring — back half (behind planet)
+    final ringRect = Rect.fromCenter(
+      center: Offset(cx, cy), width: r * 2.95, height: r * 0.54);
+    c.drawOval(ringRect,
+      Paint()
+        ..color = const Color(0xFF7B1FA2).withOpacity(0.52)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 10);
+    c.drawOval(ringRect,
+      Paint()
+        ..color = const Color(0xFF9C27B0).withOpacity(0.20)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 22);
+
+    // Planet body with animated shimmer
+    final shimmer = sin(t * 0.6) * 0.08;
+    c.drawCircle(Offset(cx, cy), r,
+      Paint()..shader = RadialGradient(
+        center: const Alignment(-0.32, -0.42),
+        colors: [
+          Color.lerp(const Color(0xFF9C27B0), Colors.white, 0.18 + shimmer)!,
+          const Color(0xFF6A1B9A),
+          const Color(0xFF2A0050),
+          Colors.black,
+        ],
+        stops: const [0.0, 0.40, 0.70, 1.0],
+      ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r)));
+
+    // Surface bands
+    for (var i = 0; i < 3; i++) {
+      final bandY = cy - r * 0.3 + i * r * 0.28;
+      final bandW = r * (0.9 - i * 0.12);
+      c.save();
+      c.clipPath(Path()..addOval(
+        Rect.fromCircle(center: Offset(cx, cy), radius: r - 1)));
+      c.drawRect(Rect.fromCenter(center: Offset(cx, bandY), width: bandW * 2, height: r * 0.06),
+        Paint()..color = const Color(0xFF7B1FA2).withOpacity(0.22));
+      c.restore();
+    }
+
+    // Highlight glare
+    c.drawCircle(Offset(cx - r * 0.28, cy - r * 0.32), r * 0.20,
+      Paint()..color = Colors.white.withOpacity(0.13));
+    c.drawCircle(Offset(cx - r * 0.22, cy - r * 0.26), r * 0.08,
+      Paint()..color = Colors.white.withOpacity(0.22));
+
+    // Ring — front half (in front of planet, clip to top half)
+    c.save();
+    c.clipRect(Rect.fromLTWH(0, 0, sz.width, cy));
+    c.drawOval(ringRect,
+      Paint()
+        ..color = const Color(0xFFBA68C8).withOpacity(0.70)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 7);
+    c.restore();
+
+    // Ring inner glow line
+    c.save();
+    c.clipRect(Rect.fromLTWH(0, 0, sz.width, cy));
+    c.drawOval(ringRect,
+      Paint()
+        ..color = Colors.white.withOpacity(0.18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3));
+    c.restore();
+  }
+
+  @override
+  bool shouldRepaint(_TitlePlanetPainter old) => old.t != t;
+}
+
+/// Draws animated shooting stars that streak across the title screen.
+class _ShootingStarPainter extends CustomPainter {
+  final double t;
+  static const _seeds = [17, 31, 53, 71, 97];
+
+  _ShootingStarPainter(this.t);
+
+  @override
+  void paint(Canvas c, Size sz) {
+    final rng = Random(0);
+    for (var i = 0; i < 4; i++) {
+      // Each star has its own offset phase so they stagger
+      final phase = ((t * 0.22 + i * 0.38) % 1.0);
+      // Only visible during first 18% of cycle — fast streak
+      if (phase > 0.18) continue;
+      final progress = phase / 0.18;           // 0→1 within streak window
+      final alpha    = sin(progress * pi);      // fade in + out
+
+      // Deterministic start position per star
+      final rng2 = Random(_seeds[i % _seeds.length]);
+      final startX = rng2.nextDouble() * sz.width  * 0.55 + sz.width  * 0.05;
+      final startY = rng2.nextDouble() * sz.height * 0.35 + sz.height * 0.04;
+      final length = 70.0 + rng2.nextDouble() * 90;
+      const angle  = 0.48; // ~28° from horizontal
+
+      final dx = cos(angle) * length;
+      final dy = sin(angle) * length;
+
+      // Trail: tail is shorter and more transparent
+      final tailX = startX + progress * sz.width * 0.35;
+      final tailY = startY + progress * sz.height * 0.22;
+
+      c.drawLine(
+        Offset(tailX, tailY),
+        Offset(tailX + dx, tailY + dy),
+        Paint()
+          ..color = Colors.white.withOpacity(alpha * 0.80)
+          ..strokeWidth = 1.4
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5),
+      );
+
+      // Bright head dot
+      c.drawCircle(Offset(tailX + dx, tailY + dy), 1.8,
+        Paint()..color = Colors.white.withOpacity(alpha));
+    }
+    rng.nextInt(1); // suppress unused warning
+  }
+
+  @override
+  bool shouldRepaint(_ShootingStarPainter old) => old.t != t;
+}
+
 class _SideBtn extends StatelessWidget {
   final String emoji, label, extraLabel;
   final int cost;
