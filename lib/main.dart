@@ -27,10 +27,6 @@ void main() async {
 
   // Crashlytics — catch all Flutter errors automatically
   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-  PlatformDispatcher.instance.onError = (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-    return true;
-  };
 
   // Performance monitoring
   FirebasePerformance.instance.setPerformanceCollectionEnabled(true);
