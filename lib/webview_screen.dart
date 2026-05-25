@@ -276,6 +276,20 @@ class _WebViewScreenState extends State<WebViewScreen>
     document.body.style.webkitOverflowScrolling = 'touch';
   }
 
+  // Ensure viewport-fit=cover so env(safe-area-inset-top/bottom) CSS
+  // variables are populated by the Android WebView. Some pages were
+  // built without it; patching it here fixes all of them at once without
+  // touching each individual HTML file.
+  (function() {
+    var vm = document.querySelector('meta[name="viewport"]');
+    if (vm) {
+      var c = vm.getAttribute('content') || '';
+      if (c.indexOf('viewport-fit') === -1) {
+        vm.setAttribute('content', c + ', viewport-fit=cover');
+      }
+    }
+  })();
+
   // Inject settings object
   $settingsJs
 

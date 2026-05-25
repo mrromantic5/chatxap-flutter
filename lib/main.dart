@@ -57,12 +57,21 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // ── Status bar ────────────────────────────────────────────────────
+  // ── Edge-to-edge + Status bar ─────────────────────────────────────
+  // edgeToEdge: Flutter draws from the very top of the screen (behind the
+  // transparent status bar). Web pages use env(safe-area-inset-top) in
+  // their CSS to push their own headers below the status bar. Without this
+  // call, SafeArea(top:false) in WebViewScreen has no visible effect and
+  // env(safe-area-inset-top) reports 0 inside the WebView.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
     statusBarBrightness: Brightness.dark,
-    systemNavigationBarColor: Color(0xFF0A0F1F),
+    // Navigation bar also transparent — the web pages use
+    // env(safe-area-inset-bottom) to pad themselves off the nav bar.
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarDividerColor: Colors.transparent,
     systemNavigationBarIconBrightness: Brightness.light,
   ));
 
