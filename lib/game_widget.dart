@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'nova_blaster_game.dart';
 
 /// Full-screen immersive wrapper for NOVA BLASTER.
+/// Hides system UI overlays for a true arcade experience.
 class GameWidget extends StatefulWidget {
   final VoidCallback? onExit;
   const GameWidget({super.key, this.onExit});

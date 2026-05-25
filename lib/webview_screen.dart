@@ -48,7 +48,8 @@ class _WebViewScreenState extends State<WebViewScreen>
     WidgetsBinding.instance.addObserver(this);
     _listenToFCM();
     _monitorConnectivity();
-    _applyScreenshotPrevention();
+    // Screenshot prevention applied via native channel
+    Future.microtask(() => _applyScreenshotPrevention());
     // Startup checks in background
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future.delayed(const Duration(seconds: 3));
@@ -102,7 +103,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       }
 
       // Screenshot prevention — re-apply on resume
-      _applyScreenshotPrevention();
+      Future.microtask(() => _applyScreenshotPrevention());
     }
   }
 
@@ -429,7 +430,8 @@ class _WebViewScreenState extends State<WebViewScreen>
                               MaterialPageRoute(
                                   builder: (_) => const NativeSettingsPage()),
                             ).then((_) {
-                              // Re-inject settings after returning
+                              // Re-apply screenshot and re-inject settings
+                              Future.microtask(() => _applyScreenshotPrevention());
                               _injectBridge();
                             });
                           }
@@ -687,523 +689,125 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   void _showExitDialog() {
     if (!mounted) return;
+    String? _message;
     showDialog(
       context: context,
       barrierDismissible: true,
-      barrierColor: Colors.black.withOpacity(0.7),
-      builder: (_) => const _PremiumExitDialog(),
-    );
-  }
-}
-
-
-// ╔══════════════════════════════════════════════════════════════════╗
-// ║           PREMIUM ChatXAP EXIT DIALOG — v2                      ║
-// ╚══════════════════════════════════════════════════════════════════╝
-class _PremiumExitDialog extends StatefulWidget {
-  const _PremiumExitDialog();
-
-  @override
-  State<_PremiumExitDialog> createState() => _PremiumExitDialogState();
-}
-
-class _PremiumExitDialogState extends State<_PremiumExitDialog>
-    with TickerProviderStateMixin {
-
-  // ── Controllers ────────────────────────────────────────────────
-  late final AnimationController _ringA;   // ring rotation
-  late final AnimationController _pulseA;  // glow pulse
-  late final AnimationController _enterA;  // entrance scale
-
-  // ── Drag state ─────────────────────────────────────────────────
-  // We track which button is being dragged ('stay'/'exit'/null)
-  // and where it currently is (offset from its resting center)
-  String? _dragging;           // which button is being dragged
-  Offset  _stayDrag = Offset.zero;
-  Offset  _exitDrag = Offset.zero;
-  bool    _stayOnCenter = false;
-  bool    _exitOnCenter = false;
-  bool    _confirmed = false;
-
-  // ── Layout geometry (all relative to dialog center) ───────────
-  // Dialog is 300×320. Center is at (150,185) within the widget.
-  // Stay lives at left, Exit at right — both on horizontal axis.
-  static const double _orbitR  = 100.0;  // button orbit radius
-  static const double _btnR    =  34.0;  // button circle radius
-  static const double _snapR   =  36.0;  // snap zone at center
-
-  // Rest positions (relative to dialog center point)
-  static const Offset _stayRest = Offset(-_orbitR, 0);
-  static const Offset _exitRest = Offset( _orbitR, 0);
-
-  @override
-  void initState() {
-    super.initState();
-    _ringA = AnimationController(
-        vsync: this, duration: const Duration(seconds: 6))
-      ..repeat();
-    _pulseA = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1600))
-      ..repeat(reverse: true);
-    _enterA = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 700))
-      ..forward();
-  }
-
-  @override
-  void dispose() {
-    _ringA.dispose();
-    _pulseA.dispose();
-    _enterA.dispose();
-    super.dispose();
-  }
-
-  // ── Check if a drag offset is close enough to center ──────────
-  bool _nearCenter(Offset off) => off.distance < _snapR;
-
-  // ── Handle Stay button drag ────────────────────────────────────
-  void _onStayUpdate(DragUpdateDetails d) {
-    if (_confirmed) return;
-    final newOff = _stayDrag + d.delta;
-    // Limit how far it can travel (not beyond right side)
-    final clamped = Offset(
-      newOff.dx.clamp(-_orbitR - 10, _orbitR + 10),
-      newOff.dy.clamp(-80.0, 80.0),
-    );
-    final onCenter = _nearCenter(clamped);
-    if (onCenter != _stayOnCenter) HapticFeedback.selectionClick();
-    setState(() {
-      _stayDrag     = clamped;
-      _stayOnCenter = onCenter;
-      _dragging     = 'stay';
-    });
-  }
-
-  void _onStayEnd(DragEndDetails d) {
-    if (_confirmed) return;
-    if (_stayOnCenter) {
-      HapticFeedback.mediumImpact();
-      Navigator.of(context).pop();
-    } else {
-      HapticFeedback.lightImpact();
-      setState(() {
-        _stayDrag     = Offset.zero;
-        _stayOnCenter = false;
-        _dragging     = null;
-      });
-    }
-  }
-
-  // ── Handle Exit button drag ────────────────────────────────────
-  void _onExitUpdate(DragUpdateDetails d) {
-    if (_confirmed) return;
-    final newOff = _exitDrag + d.delta;
-    final clamped = Offset(
-      newOff.dx.clamp(-_orbitR - 10, _orbitR + 10),
-      newOff.dy.clamp(-80.0, 80.0),
-    );
-    final onCenter = _nearCenter(clamped);
-    if (onCenter != _exitOnCenter) HapticFeedback.selectionClick();
-    setState(() {
-      _exitDrag     = clamped;
-      _exitOnCenter = onCenter;
-      _dragging     = 'exit';
-    });
-  }
-
-  void _onExitEnd(DragEndDetails d) {
-    if (_confirmed) return;
-    if (_exitOnCenter) {
-      HapticFeedback.heavyImpact();
-      setState(() => _confirmed = true);
-      Future.delayed(const Duration(milliseconds: 350),
-          () => SystemNavigator.pop());
-    } else {
-      HapticFeedback.lightImpact();
-      setState(() {
-        _exitDrag     = Offset.zero;
-        _exitOnCenter = false;
-        _dragging     = null;
-      });
-    }
-  }
-
-  // ── Snap animation back when drag resets ──────────────────────
-  Widget _animatedReset(Widget child, Offset current) {
-    return AnimatedSlide(
-      offset: current == Offset.zero ? Offset.zero : Offset(current.dx / 200, current.dy / 200),
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.elasticOut,
-      child: child,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Accent colors depending on state
-    final Color accent = _exitOnCenter || _confirmed
-        ? const Color(0xFFFF4B4B)
-        : _stayOnCenter
-            ? const Color(0xFF4DA3FF)
-            : const Color(0xFF4DA3FF);
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-      child: ScaleTransition(
-        scale: CurvedAnimation(parent: _enterA, curve: Curves.elasticOut),
-        child: Container(
-          width: 320,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(32),
-            color: const Color(0xFF080D1A),
-            border: Border.all(
-              color: accent.withOpacity(0.25),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: accent.withOpacity(0.18),
-                blurRadius: 48,
-                spreadRadius: 4,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-
-              // ── Gradient top bar ─────────────────────────────
-              Container(
-                height: 3,
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(32)),
-                  gradient: LinearGradient(colors: [
-                    const Color(0xFF4DA3FF),
-                    const Color(0xFF7C5CFC),
-                    accent,
-                  ]),
-                ),
-              ),
-
-              const SizedBox(height: 28),
-
-              // ── Title ────────────────────────────────────────
-              AnimatedBuilder(
-                animation: _pulseA,
-                builder: (_, __) => Text(
-                  _confirmed
-                      ? 'Goodbye 👋'
-                      : _exitOnCenter
-                          ? 'Release to exit'
-                          : _stayOnCenter
-                              ? 'Release to stay'
-                              : 'Exit ChatXAP?',
-                  style: TextStyle(
-                    color: _exitOnCenter || _confirmed
-                        ? const Color(0xFFFF4B4B)
-                        : _stayOnCenter
-                            ? const Color(0xFF4DA3FF)
-                            : Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.3,
+      barrierColor: Colors.black.withOpacity(0.8),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => Dialog(
+          backgroundColor: const Color(0xFF0F1626),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 60, height: 60,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFFFF4B4B).withOpacity(0.1),
                   ),
+                  child: const Icon(Icons.power_settings_new_rounded,
+                      color: Color(0xFFFF4B4B), size: 30),
                 ),
-              ),
-
-              const SizedBox(height: 6),
-
-              Text(
-                _dragging != null
-                    ? 'Drop it in the center ✦'
-                    : 'Drag a button to the glowing center',
-                style: TextStyle(
-                  color: const Color(0xFF9CA3AF).withOpacity(0.8),
-                  fontSize: 13,
+                const SizedBox(height: 20),
+                const Text('Exit ChatXAP?',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 10),
+                const Text(
+                  'Are you sure you want to exit ChatXAP?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Color(0xFF9CA3AF),
+                      fontSize: 14, height: 1.5),
                 ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // ── Ring arena ───────────────────────────────────
-              SizedBox(
-                width: 290,
-                height: 240,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-
-                    // Outer rotating dashed ring
-                    AnimatedBuilder(
-                      animation: _ringA,
-                      builder: (_, __) => Transform.rotate(
-                        angle: _ringA.value * 2 * 3.14159,
-                        child: CustomPaint(
-                          size: const Size(250, 250),
-                          painter: _DashedCirclePainter(
-                            color: accent.withOpacity(0.3),
-                            strokeWidth: 1.5,
-                            dashCount: 40,
-                          ),
-                        ),
-                      ),
+                if (_message != null) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    _message!,
+                    style: TextStyle(
+                      color: _message == 'Goodbye 👋'
+                          ? const Color(0xFFFF4B4B)
+                          : const Color(0xFF4DA3FF),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
                     ),
-
-                    // Counter-rotating inner ring
-                    AnimatedBuilder(
-                      animation: _ringA,
-                      builder: (_, __) => Transform.rotate(
-                        angle: -_ringA.value * 2 * 3.14159,
-                        child: CustomPaint(
-                          size: const Size(190, 190),
-                          painter: _DashedCirclePainter(
-                            color: accent.withOpacity(0.15),
-                            strokeWidth: 1.0,
-                            dashCount: 24,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Orbit dots (6 particles spinning)
-                    AnimatedBuilder(
-                      animation: _ringA,
-                      builder: (_, __) => CustomPaint(
-                        size: const Size(290, 240),
-                        painter: _OrbitDotsPainter(
-                          progress: _ringA.value,
-                          color: accent,
-                          radius: 120,
-                        ),
-                      ),
-                    ),
-
-                    // Center target zone — glows when something approaches
-                    AnimatedBuilder(
-                      animation: _pulseA,
-                      builder: (_, __) {
-                        final nearAny = _stayOnCenter || _exitOnCenter;
-                        final pulse = 0.7 + 0.3 * _pulseA.value;
-                        return Container(
-                          width: nearAny ? 72 : 56,
-                          height: nearAny ? 72 : 56,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _confirmed
-                                ? const Color(0xFFFF4B4B).withOpacity(0.15)
-                                : nearAny
-                                    ? accent.withOpacity(0.18 * pulse)
-                                    : const Color(0xFF1A2540)
-                                        .withOpacity(0.8),
-                            border: Border.all(
-                              color: accent.withOpacity(
-                                  nearAny ? 0.9 : 0.35 * pulse),
-                              width: nearAny ? 2.5 : 1.5,
-                            ),
-                            boxShadow: nearAny
-                                ? [
-                                    BoxShadow(
-                                      color: accent.withOpacity(0.5),
-                                      blurRadius: 24,
-                                      spreadRadius: 6,
-                                    )
-                                  ]
-                                : [],
-                          ),
-                          child: Icon(
-                            _confirmed
-                                ? Icons.check_rounded
-                                : nearAny
-                                    ? Icons.fingerprint
-                                    : Icons.add_rounded,
-                            color: accent.withOpacity(
-                                nearAny ? 1.0 : 0.5),
-                            size: nearAny ? 30 : 22,
-                          ),
-                        );
+                  ),
+                ],
+                const SizedBox(height: 28),
+                Row(children: [
+                  // NO — blue button
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (AppSettings.hapticFeedback) {
+                          HapticFeedback.mediumImpact();
+                        }
+                        setDlgState(() => _message = 'Great 💙');
+                        Future.delayed(
+                            const Duration(milliseconds: 700), () {
+                          if (ctx.mounted) Navigator.pop(ctx);
+                        });
                       },
-                    ),
-
-                    // ── STAY button (left side) ──────────────────
-                    Transform.translate(
-                      offset: _stayRest + _stayDrag,
-                      child: GestureDetector(
-                        onPanUpdate: _onStayUpdate,
-                        onPanEnd: _onStayEnd,
-                        onPanCancel: () => setState(() {
-                          _stayDrag = Offset.zero;
-                          _stayOnCenter = false;
-                          _dragging = null;
-                        }),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 120),
-                          width: _stayOnCenter
-                              ? _btnR * 2 + 12
-                              : _btnR * 2,
-                          height: _stayOnCenter
-                              ? _btnR * 2 + 12
-                              : _btnR * 2,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: _stayOnCenter
-                                  ? [
-                                      const Color(0xFF4DA3FF),
-                                      const Color(0xFF1A6FCC),
-                                    ]
-                                  : [
-                                      const Color(0xFF1A2A45),
-                                      const Color(0xFF0E1830),
-                                    ],
-                            ),
-                            border: Border.all(
-                              color: const Color(0xFF4DA3FF)
-                                  .withOpacity(_stayOnCenter ? 0 : 0.7),
-                              width: 2.0,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF4DA3FF).withOpacity(
-                                    _stayOnCenter ? 0.65 : 0.25),
-                                blurRadius: _stayOnCenter ? 24 : 10,
-                                spreadRadius: _stayOnCenter ? 4 : 0,
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.favorite_rounded,
-                                color: _stayOnCenter
-                                    ? Colors.white
-                                    : const Color(0xFF4DA3FF),
-                                size: 18,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Stay',
-                                style: TextStyle(
-                                  color: _stayOnCenter
-                                      ? Colors.white
-                                      : const Color(0xFF4DA3FF),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: const Color(0xFF4DA3FF).withOpacity(0.12),
+                          border: Border.all(
+                              color: const Color(0xFF4DA3FF).withOpacity(0.4)),
+                        ),
+                        child: const Center(
+                          child: Text('NO',
+                              style: TextStyle(
+                                  color: Color(0xFF4DA3FF),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15)),
                         ),
                       ),
                     ),
-
-                    // ── EXIT button (right side) ─────────────────
-                    Transform.translate(
-                      offset: _exitRest + _exitDrag,
-                      child: GestureDetector(
-                        onPanUpdate: _onExitUpdate,
-                        onPanEnd: _onExitEnd,
-                        onPanCancel: () => setState(() {
-                          _exitDrag = Offset.zero;
-                          _exitOnCenter = false;
-                          _dragging = null;
-                        }),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 120),
-                          width: _exitOnCenter
-                              ? _btnR * 2 + 12
-                              : _btnR * 2,
-                          height: _exitOnCenter
-                              ? _btnR * 2 + 12
-                              : _btnR * 2,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: _exitOnCenter || _confirmed
-                                  ? [
-                                      const Color(0xFFFF4B4B),
-                                      const Color(0xFFCC1A1A),
-                                    ]
-                                  : [
-                                      const Color(0xFF45101A),
-                                      const Color(0xFF2A0A0E),
-                                    ],
-                            ),
-                            border: Border.all(
-                              color: const Color(0xFFFF4B4B).withOpacity(
-                                  _exitOnCenter ? 0 : 0.7),
-                              width: 2.0,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFFFF4B4B).withOpacity(
-                                    _exitOnCenter || _confirmed
-                                        ? 0.65
-                                        : 0.25),
-                                blurRadius: _exitOnCenter ? 24 : 10,
-                                spreadRadius: _exitOnCenter ? 4 : 0,
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.power_settings_new_rounded,
-                                color: _exitOnCenter || _confirmed
-                                    ? Colors.white
-                                    : const Color(0xFFFF4B4B),
-                                size: 18,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Exit',
-                                style: TextStyle(
-                                  color: _exitOnCenter || _confirmed
-                                      ? Colors.white
-                                      : const Color(0xFFFF4B4B),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
+                  ),
+                  const SizedBox(width: 14),
+                  // YES — red button
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (AppSettings.hapticFeedback) {
+                          HapticFeedback.heavyImpact();
+                        }
+                        setDlgState(() => _message = 'Goodbye 👋');
+                        Future.delayed(
+                            const Duration(milliseconds: 700), () {
+                          SystemNavigator.pop();
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: const Color(0xFFFF4B4B).withOpacity(0.12),
+                          border: Border.all(
+                              color: const Color(0xFFFF4B4B).withOpacity(0.4)),
+                        ),
+                        child: const Center(
+                          child: Text('YES',
+                              style: TextStyle(
+                                  color: Color(0xFFFF4B4B),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15)),
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // ── Hint arrows ──────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('💙 Stay',
-                        style: TextStyle(
-                            color: const Color(0xFF4DA3FF).withOpacity(0.7),
-                            fontSize: 12)),
-                    Text('Exit 🚪',
-                        style: TextStyle(
-                            color: const Color(0xFFFF4B4B).withOpacity(0.7),
-                            fontSize: 12)),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-            ],
+                  ),
+                ]),
+              ],
+            ),
           ),
         ),
       ),
@@ -1211,68 +815,3 @@ class _PremiumExitDialogState extends State<_PremiumExitDialog>
   }
 }
 
-// ── Dashed circle ring painter ───────────────────────────────────
-class _DashedCirclePainter extends CustomPainter {
-  final Color color;
-  final double strokeWidth;
-  final int dashCount;
-  const _DashedCirclePainter({
-    required this.color,
-    required this.strokeWidth,
-    required this.dashCount,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = strokeWidth
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = size.width / 2 - strokeWidth;
-    final step = 2 * 3.14159 / dashCount;
-    for (int i = 0; i < dashCount; i++) {
-      final start = i * step;
-      final sweep = step * 0.55;
-      canvas.drawArc(
-        Rect.fromCircle(center: c, radius: r),
-        start, sweep, false, paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DashedCirclePainter o) => o.color != color;
-}
-
-// ── Orbit dots painter ───────────────────────────────────────────
-class _OrbitDotsPainter extends CustomPainter {
-  final double progress;
-  final Color color;
-  final double radius;
-  const _OrbitDotsPainter(
-      {required this.progress, required this.color, required this.radius});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    const count = 5;
-    for (int i = 0; i < count; i++) {
-      final angle = (progress + i / count) * 2 * 3.14159;
-      final pos = Offset(
-        c.dx + radius * _cos(angle),
-        c.dy + radius * _sin(angle),
-      );
-      final opacity = 0.25 + 0.55 * ((_sin(angle * 2 + progress * 6.28) + 1) / 2);
-      canvas.drawCircle(
-          pos, 3.0, Paint()..color = color.withOpacity(opacity));
-    }
-  }
-
-  double _cos(double a) => cos(a);
-  double _sin(double a) => sin(a);
-
-  @override
-  bool shouldRepaint(_OrbitDotsPainter o) => o.progress != progress;
-}

@@ -1,1 +1,1 @@
-// Legacy stub — particles inlined in nova_blaster_game.dart
+// Legacy stub — particles are now inlined in nova_blaster_game.dart

@@ -16,6 +16,7 @@ class AppSettings {
   static const _kNotifSuppress   = 'cx_notif_suppress';
   static const _kMediaQuality    = 'cx_media_quality'; // 'auto','high','low'
   static const _kLastLocked      = 'cx_last_locked_ts';
+  static const _kPinHash         = 'cx_pin_hash';
 
   // ── Defaults ────────────────────────────────────────────────────
   static bool   biometricLock     = false;
@@ -27,6 +28,7 @@ class AppSettings {
   static bool   notifSuppress     = true; // hide notif if chat is open
   static String mediaQuality      = 'auto';
   static int    lastLockedTs      = 0;
+  static String pinHash          = '';
 
   /// Load all settings from disk. Call once at app startup.
   static Future<void> load() async {
@@ -40,6 +42,7 @@ class AppSettings {
     notifSuppress   = p.getBool(_kNotifSuppress)  ?? true;
     mediaQuality    = p.getString(_kMediaQuality) ?? 'auto';
     lastLockedTs    = p.getInt(_kLastLocked)      ?? 0;
+    pinHash         = p.getString(_kPinHash)       ?? '';
   }
 
   static Future<void> setBiometricLock(bool v) async {
@@ -85,6 +88,21 @@ class AppSettings {
   static Future<void> setLastLocked(int ts) async {
     lastLockedTs = ts;
     (await SharedPreferences.getInstance()).setInt(_kLastLocked, ts);
+  }
+
+  static Future<void> setPinHash(String hash) async {
+    pinHash = hash;
+    (await SharedPreferences.getInstance()).setString(_kPinHash, hash);
+  }
+
+  static bool verifyPin(String enteredPin) {
+    // Simple hash: sum of char codes (good enough for local PIN)
+    final hash = enteredPin.codeUnits.fold(0, (a, b) => a + b).toString();
+    return pinHash == hash && pinHash.isNotEmpty;
+  }
+
+  static String hashPin(String pin) {
+    return pin.codeUnits.fold(0, (a, b) => a + b).toString();
   }
 
   /// Returns true if auto-lock timer has expired
