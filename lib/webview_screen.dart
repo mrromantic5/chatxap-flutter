@@ -34,7 +34,9 @@ class _WebViewScreenState extends State<WebViewScreen>
   double _progress  = 0;
 
   // ── Lock state ──────────────────────────────────────────────────
-  bool _locked = false;
+  // Lock on cold start if biometric lock is enabled and a PIN is set.
+  // AppSettings.load() runs before runApp(), so values are ready here.
+  bool _locked = AppSettings.biometricLock && AppSettings.pinHash.isNotEmpty;
   DateTime? _backgroundedAt;
 
   static const String _baseUrl = 'https://c.x.t-lyfe.com.ng';
@@ -79,8 +81,9 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _backgroundedAt = DateTime.now();
-      // Record timestamp for auto-lock
-      if (AppSettings.autoLock) {
+      // Record timestamp whenever biometric or auto-lock is active,
+      // so isAutoLockExpired() always has a valid reference.
+      if (AppSettings.biometricLock || AppSettings.autoLock) {
         AppSettings.setLastLocked(
             DateTime.now().millisecondsSinceEpoch);
       }
@@ -91,10 +94,13 @@ class _WebViewScreenState extends State<WebViewScreen>
       BadgeService.clear();
 
       // Check if we should lock
-      if (AppSettings.biometricLock) {
+      if (AppSettings.biometricLock && AppSettings.pinHash.isNotEmpty) {
         final shouldLock = AppSettings.autoLock
             ? AppSettings.isAutoLockExpired()
-            : (_backgroundedAt != null &&
+            // No auto-lock timer: lock if backgrounded >30 s, OR if
+            // _backgroundedAt is null (resumed without a recorded pause,
+            // e.g. app was killed and relaunched fresh).
+            : (_backgroundedAt == null ||
                 DateTime.now().difference(_backgroundedAt!) >
                     const Duration(seconds: 30));
         if (shouldLock && !_locked) {
