@@ -422,6 +422,10 @@ class _Alien {
   double baseX,oscPhase,oscAmp,shootTimer;
   final AlienKind kind; late int hp,maxHp; bool dead=false;
   late double cr; late int score; late Color col;
+  // Boss-specific: boss enters from top then anchors at bossAnchorY
+  bool bossAnchored=false;
+  double bossAnchorY=170.0;
+  double _bossHoverPhase=0.0;
   _Alien(this.x,this.y,this.kind,this.vy,this.rotSpd,this.oscPhase,this.oscAmp,this.shootTimer):baseX=x{
     switch(kind){
       case AlienKind.drone:    hp=maxHp=1;cr=20;score=10;col=_cGreen;
@@ -431,8 +435,26 @@ class _Alien {
     }
   }
   void update(double dt,double sw){
-    y+=vy*dt;rot+=rotSpd*dt;oscPhase+=dt*(kind==AlienKind.fighter?2.4:1.5);
-    x=baseX+sin(oscPhase)*oscAmp;x=x.clamp(cr,sw-cr);
+    rot+=rotSpd*dt;
+    if(kind==AlienKind.boss){
+      if(!bossAnchored){
+        // Slow entry slide down from off-screen
+        y+=vy*dt;
+        if(y>=bossAnchorY){y=bossAnchorY;bossAnchored=true;vy=0;}
+      } else {
+        // Gentle hovering: slow vertical bob + wide horizontal sweep
+        _bossHoverPhase+=dt*0.9;
+        oscPhase+=dt*0.7;
+        y=bossAnchorY+sin(_bossHoverPhase)*26.0;
+        x=baseX+sin(oscPhase)*oscAmp;
+        x=x.clamp(cr,sw-cr);
+      }
+    } else {
+      y+=vy*dt;
+      oscPhase+=dt*(kind==AlienKind.fighter?2.4:1.5);
+      x=baseX+sin(oscPhase)*oscAmp;
+      x=x.clamp(cr,sw-cr);
+    }
     shootTimer-=dt;if(flash>0)flash-=dt*5;
   }
   int get bossPhase{final p=hp/maxHp;return p>0.65?1:p>0.32?2:3;}
@@ -475,6 +497,8 @@ class _GS {
   GamePhase phase=GamePhase.title;
   int score=0,hi=0,lives=3,level=1,combo=0;
   double comboTimer=0;
+  int lastLevel=1;   // persisted — level to resume from
+  int maxLevel=1;    // persisted — highest level ever reached
 
   // Ship
   double shipX=0,shipY=0,targetX=0,targetY=0;
@@ -519,7 +543,7 @@ class _GS {
   double reloadMsgT=0;
 
   // Derived
-  double get alienSpd => (95+level*20).toDouble();
+  double get alienSpd => (62+level*11).toDouble(); // reduced from 95+20x for better pacing
   int get killsForLevel => 12+level*3;
 
   bool get canAffordReload => score >= _kReloadCost;
@@ -543,6 +567,20 @@ class _GS {
     fireT=spawnT=0;waveKills=0;wavePositions.clear();waveIdx=0;spawning=false;
     shakeT=flashScreen=levelUpOverlay=bossWarnOverlay=0;
     reloadMsg='';reloadMsgT=0;
+    phase=GamePhase.playing;
+    _queueWave();
+  }
+
+  /// Resume from the last saved level (score starts fresh but level is restored).
+  void continueGame(){
+    score=0;lives=3;combo=0;comboTimer=0;
+    shield=false;speedBoost=false;gunLevel=1;bombs=0;
+    shieldT=speedT=gunT=invT=flashT=0;
+    aliens.clear();bullets.clear();ptcls.clear();pus.clear();trail.clear();labels.clear();
+    fireT=spawnT=0;waveKills=0;wavePositions.clear();waveIdx=0;spawning=false;
+    shakeT=flashScreen=levelUpOverlay=bossWarnOverlay=0;
+    reloadMsg='';reloadMsgT=0;
+    level=lastLevel.clamp(1,999);
     phase=GamePhase.playing;
     _queueWave();
   }
@@ -645,8 +683,11 @@ class _Logic {
   void _updateAliens(double dt){
     for(final e in s.aliens){
       e.update(dt,s.sw);
-      if(e.y>s.sh+80)e.dead=true;
-      if(e.shootTimer<=0&&!e.dead&&e.y>80){e.shootTimer=_shtInt(e.kind);_shootAlien(e);}
+      // Only non-boss aliens die when they fall off screen
+      if(e.kind!=AlienKind.boss && e.y>s.sh+80)e.dead=true;
+      // Boss shoots as soon as it appears on screen; others only when past top 80px
+      final shootThreshold = e.kind==AlienKind.boss ? -200.0 : 80.0;
+      if(e.shootTimer<=0&&!e.dead&&e.y>shootThreshold){e.shootTimer=_shtInt(e.kind);_shootAlien(e);}
     }
     s.aliens.removeWhere((e)=>e.dead);
   }
@@ -695,23 +736,36 @@ class _Logic {
     if(s.waveIdx>=s.wavePositions.length){s.spawning=false;return;}
     s.spawnT=s.waveKind==AlienKind.boss?0.0:0.16;
     final pos=s.wavePositions[s.waveIdx++];
-    final vy=s.alienSpd+s.rng.nextDouble()*28;
+    // Boss enters slowly; normal aliens use alienSpd
+    final vy=s.waveKind==AlienKind.boss?90.0:s.alienSpd+s.rng.nextDouble()*20;
     final rotS=(s.rng.nextDouble()-0.5)*2.6;
-    final amp=s.waveKind==AlienKind.boss?0.0:22+s.rng.nextDouble()*55;
+    // Boss sweeps wide horizontally; normal aliens have moderate oscillation
+    final amp=s.waveKind==AlienKind.boss?115.0:22+s.rng.nextDouble()*50;
     final shtT=0.8+s.rng.nextDouble()*2.2;
-    s.aliens.add(_Alien(pos.dx,pos.dy,s.waveKind,vy,rotS,s.rng.nextDouble()*pi*2,amp,shtT));
+    final alien=_Alien(pos.dx,pos.dy,s.waveKind,vy,rotS,s.rng.nextDouble()*pi*2,amp,shtT);
+    if(s.waveKind==AlienKind.boss){
+      // Anchor boss at ~20% down the screen so it's always visible and in "fighting range"
+      alien.bossAnchorY=(s.sh*0.20).clamp(130.0,220.0);
+    }
+    s.aliens.add(alien);
   }
 
   void _waveComplete(){
     if(s.levelUpOverlay>0)return; // already transitioning
     _label(s.sw/2,s.sh*0.38,'WAVE  CLEAR!',const Color(0xFF6BFF6B),big:true);
-    s.levelUpOverlay=2.2;
+    s.levelUpOverlay=3.5;  // was 2.2 — longer display time
     s.waveKills=0;
-    // Immediately queue and start next wave — NO FREEZE
     s.level++;
+    // Persist progress so Continue works from here
+    if(s.level>s.maxLevel)s.maxLevel=s.level;
+    s.lastLevel=s.level;
+    SharedPreferences.getInstance().then((p){
+      p.setInt('nova_last_level',s.lastLevel);
+      p.setInt('nova_max_level',s.maxLevel);
+    });
     if(s.level%5==0){
-      s.bossWarnOverlay=2.2;
-      Future.delayed(const Duration(milliseconds:2200),(){
+      s.bossWarnOverlay=3.5;  // was 2.2
+      Future.delayed(const Duration(milliseconds:3500),(){
         if(s.phase==GamePhase.playing){s._queueWave();}
       });
     } else {
@@ -772,8 +826,14 @@ class _Logic {
   void _endGame(){
     s.phase=GamePhase.gameOver;
     if(s.score>s.hi)s.hi=s.score;
+    if(s.level>s.maxLevel)s.maxLevel=s.level;
+    s.lastLevel=s.level.clamp(1,999);
     GameAudio.playGameOver();
-    SharedPreferences.getInstance().then((p)=>p.setInt('nova_hi',s.hi));
+    SharedPreferences.getInstance().then((p){
+      p.setInt('nova_hi',s.hi);
+      p.setInt('nova_last_level',s.lastLevel);
+      p.setInt('nova_max_level',s.maxLevel);
+    });
   }
 
   void _killAlien(_Alien e,{bool award=true}){
@@ -961,7 +1021,13 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
     super.initState();
     _gs=_GS();_logic=_Logic(_gs);
     _ticker=createTicker(_tick)..start();
-    SharedPreferences.getInstance().then((p)=>_gs.hi=p.getInt('nova_hi')??0);
+    SharedPreferences.getInstance().then((p){
+      setState((){
+        _gs.hi=p.getInt('nova_hi')??0;
+        _gs.lastLevel=(p.getInt('nova_last_level')??1).clamp(1,999);
+        _gs.maxLevel=(p.getInt('nova_max_level')??1).clamp(1,999);
+      });
+    });
     GameAudio.initialize().then((_)=>GameAudio.startBackgroundMusic());
   }
 
@@ -982,7 +1048,7 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
   }
   void _onTap(Offset p){
     switch(_gs.phase){
-      case GamePhase.title: _gs.reset();GameAudio.startBackgroundMusic();
+      case GamePhase.title: break; // title screen uses explicit buttons
       case GamePhase.playing:_logic.useBomb();
       case GamePhase.gameOver:_gs.reset();GameAudio.startBackgroundMusic();
       case GamePhase.paused:_gs.phase=GamePhase.playing;GameAudio.resumeBackgroundMusic();
@@ -1113,62 +1179,112 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
 
                 const SizedBox(height: 36),
 
-                // ── Pulsing launch button ──────────────────────────
-                GestureDetector(
-                  onTap: () { _gs.reset(); GameAudio.startBackgroundMusic(); },
-                  child: Stack(alignment: Alignment.center, children: [
-                    // Outer pulse ring
-                    Container(
-                      width: 276 + pulse * 12,
-                      height: 58 + pulse * 12,
+                // ── Launch buttons ─────────────────────────────────
+                // CONTINUE button — only shown when the player has reached level 2+
+                if (_gs.lastLevel > 1) ...[
+                  GestureDetector(
+                    onTap: () {
+                      _gs.continueGame();
+                      GameAudio.startBackgroundMusic();
+                    },
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 28),
+                      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(40),
-                        border: Border.all(
-                          color: _cAccent.withOpacity(0.25 - pulse * 0.18),
-                          width: 1.5,
+                        borderRadius: BorderRadius.circular(32),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1A4F8A), Color(0xFF0D2E5A)],
                         ),
+                        border: Border.all(color: _cAccent, width: 1.8),
+                        boxShadow: [BoxShadow(
+                          color: _cAccent.withOpacity(0.35),
+                          blurRadius: 28, spreadRadius: 2,
+                        )],
+                      ),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        const Icon(Icons.play_circle_filled_rounded, color: _cAccent, size: 22),
+                        const SizedBox(width: 10),
+                        Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                          const Text('CONTINUE',
+                            style: TextStyle(color: Colors.white, fontSize: 16,
+                              fontWeight: FontWeight.w900, letterSpacing: 3.0)),
+                          Text('From  Level ${_gs.lastLevel}',
+                            style: TextStyle(color: _cAccent.withOpacity(0.75),
+                              fontSize: 10, letterSpacing: 1.5)),
+                        ]),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // NEW GAME / TAP TO LAUNCH button
+                Stack(alignment: Alignment.center, children: [
+                  // Outer pulse ring
+                  Container(
+                    width: 276 + pulse * 12,
+                    height: 58 + pulse * 12,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(40),
+                      border: Border.all(
+                        color: (_gs.lastLevel > 1 ? _cGold : _cAccent).withOpacity(0.25 - pulse * 0.18),
+                        width: 1.5,
                       ),
                     ),
-                    // Middle ring
-                    Container(
-                      width: 260 + pulse * 6,
-                      height: 54 + pulse * 6,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(36),
-                        border: Border.all(
-                          color: _cAccent.withOpacity(0.18 - pulse * 0.12),
-                          width: 1.0,
-                        ),
+                  ),
+                  // Middle ring
+                  Container(
+                    width: 260 + pulse * 6,
+                    height: 54 + pulse * 6,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(36),
+                      border: Border.all(
+                        color: (_gs.lastLevel > 1 ? _cGold : _cAccent).withOpacity(0.18 - pulse * 0.12),
+                        width: 1.0,
                       ),
                     ),
-                    // Main button
-                    Opacity(
+                  ),
+                  // Main button
+                  GestureDetector(
+                    onTap: () { _gs.reset(); GameAudio.startBackgroundMusic(); },
+                    child: Opacity(
                       opacity: blink,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 38, vertical: 15),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(32),
-                          border: Border.all(color: _cAccent, width: 1.6),
-                          color: _cAccent.withOpacity(0.10),
+                          border: Border.all(
+                            color: _gs.lastLevel > 1 ? _cGold : _cAccent,
+                            width: 1.6,
+                          ),
+                          color: (_gs.lastLevel > 1 ? _cGold : _cAccent).withOpacity(0.10),
                           boxShadow: [BoxShadow(
-                            color: _cAccent.withOpacity(0.22 + pulse * 0.18),
+                            color: (_gs.lastLevel > 1 ? _cGold : _cAccent).withOpacity(0.22 + pulse * 0.18),
                             blurRadius: 24 + pulse * 18,
                             spreadRadius: 2,
                           )],
                         ),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.play_arrow_rounded, color: _cAccent, size: 22),
+                          Icon(
+                            _gs.lastLevel > 1 ? Icons.restart_alt_rounded : Icons.play_arrow_rounded,
+                            color: _gs.lastLevel > 1 ? _cGold : _cAccent,
+                            size: 22,
+                          ),
                           const SizedBox(width: 10),
-                          const Text('TAP  TO  LAUNCH',
+                          Text(
+                            _gs.lastLevel > 1 ? 'NEW  GAME' : 'TAP  TO  LAUNCH',
                             style: TextStyle(
-                              color: _cAccent, fontSize: 16,
-                              letterSpacing: 3.5, fontWeight: FontWeight.w700,
-                            )),
+                              color: _gs.lastLevel > 1 ? _cGold : _cAccent,
+                              fontSize: 16,
+                              letterSpacing: 3.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ]),
                       ),
                     ),
-                  ]),
-                ),
+                  ),
+                ]),
 
                 const SizedBox(height: 34),
 
@@ -1230,7 +1346,7 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
                       Container(width: 1, height: 36, color: Colors.white12),
                       _statCell(Icons.military_tech_rounded, _cPurple,
                         'LEVEL BEST',
-                        _gs.hi > 0 ? 'LV ${_gs.level}' : '--'),
+                        _gs.maxLevel > 1 ? 'LV  ${_gs.maxLevel}' : 'LV  1'),
                     ],
                   ),
                 ),
@@ -1413,11 +1529,33 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
           _sRow('HIGH SCORE',_gs.hi.toString().padLeft(7,'0')),
         ])),
       const SizedBox(height:30),
+      // ── Play Again (restart from level 1) ─────────────────────────
       GestureDetector(onTap:(){_gs.reset();GameAudio.startBackgroundMusic();},child:Container(
         padding:const EdgeInsets.symmetric(horizontal:52,vertical:15),
         decoration:BoxDecoration(color:_cAccent,borderRadius:BorderRadius.circular(32),boxShadow:[BoxShadow(color:_cAccent.withOpacity(0.50),blurRadius:26,spreadRadius:2)]),
-        child:const Text('PLAY  AGAIN',style:TextStyle(color:Colors.white,fontSize:16,fontWeight:FontWeight.w900,letterSpacing:3.5)))),
-      const SizedBox(height:14),
+        child:const Text('NEW  GAME',style:TextStyle(color:Colors.white,fontSize:16,fontWeight:FontWeight.w900,letterSpacing:3.5)))),
+      const SizedBox(height:12),
+      // ── Continue from last level ───────────────────────────────────
+      if(_gs.lastLevel>1)
+        GestureDetector(
+          onTap:(){_gs.continueGame();GameAudio.startBackgroundMusic();},
+          child:Container(
+            padding:const EdgeInsets.symmetric(horizontal:38,vertical:13),
+            decoration:BoxDecoration(
+              color:Colors.transparent,
+              borderRadius:BorderRadius.circular(32),
+              border:Border.all(color:_cGold,width:1.8),
+              boxShadow:[BoxShadow(color:_cGold.withOpacity(0.25),blurRadius:18,spreadRadius:1)],
+            ),
+            child:Row(mainAxisSize:MainAxisSize.min,children:[
+              const Icon(Icons.play_circle_outline_rounded,color:_cGold,size:18),
+              const SizedBox(width:8),
+              Text('CONTINUE  LV ${_gs.lastLevel}',style:const TextStyle(color:_cGold,fontSize:14,fontWeight:FontWeight.w800,letterSpacing:2.5)),
+            ]),
+          ),
+        ),
+      if(_gs.lastLevel>1) const SizedBox(height:12),
+      const SizedBox(height:2),
       TextButton.icon(onPressed:_exit,icon:const Icon(Icons.arrow_back_ios_rounded,color:_cAccent,size:14),label:const Text('Back to ChatXAP',style:TextStyle(color:_cAccent,fontSize:13))),
     ])));
   }
