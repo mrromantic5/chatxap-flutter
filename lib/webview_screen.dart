@@ -268,28 +268,6 @@ class _WebViewScreenState extends State<WebViewScreen>
   document.documentElement.style.overscrollBehavior = 'none';
   if (document.body) document.body.style.overscrollBehavior = 'none';
 
-  // Enable momentum scrolling for pages that use natural document flow
-  // (not the BizGrow feed which handles its own touch/swipe).
-  // Without this, InAppWebView on Android can stall scroll on pages like
-  // biz_upload.html that rely on the body/html scroll container.
-  if (document.body) {
-    document.body.style.webkitOverflowScrolling = 'touch';
-  }
-
-  // Ensure viewport-fit=cover so env(safe-area-inset-top/bottom) CSS
-  // variables are populated by the Android WebView. Some pages were
-  // built without it; patching it here fixes all of them at once without
-  // touching each individual HTML file.
-  (function() {
-    var vm = document.querySelector('meta[name="viewport"]');
-    if (vm) {
-      var c = vm.getAttribute('content') || '';
-      if (c.indexOf('viewport-fit') === -1) {
-        vm.setAttribute('content', c + ', viewport-fit=cover');
-      }
-    }
-  })();
-
   // Inject settings object
   $settingsJs
 
@@ -361,11 +339,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     transparentBackground: false,
     useWideViewPort: true,
     loadWithOverviewMode: true,
-    // IF_CONTENT_SCROLLS: only shows overscroll effect when the content
-    // actually scrolls. Using NEVER was blocking scroll gesture initiation
-    // on some Android versions, causing pages like biz_upload.html to appear
-    // frozen.
-    overScrollMode: OverScrollMode.IF_CONTENT_SCROLLS,
+    overScrollMode: OverScrollMode.NEVER,
     verticalScrollBarEnabled: false,
     horizontalScrollBarEnabled: false,
     supportZoom: false,
@@ -405,14 +379,6 @@ class _WebViewScreenState extends State<WebViewScreen>
       child: Scaffold(
         backgroundColor: const Color(0xFF0A0F1F),
         body: SafeArea(
-          // top: false → WebView renders behind the transparent status bar,
-          // exactly like the PWA in Chrome. The web pages already use
-          // env(safe-area-inset-top) in their CSS so they pad themselves
-          // correctly. Keeping top=true caused a double-offset: Flutter's
-          // SafeArea pushed the viewport down AND the CSS var added more
-          // padding, producing the black bar and the mis-aligned story
-          // progress bars / username header.
-          top: false,
           child: Stack(
             children: [
               InAppWebView(
