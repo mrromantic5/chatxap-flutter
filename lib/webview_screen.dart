@@ -28,20 +28,20 @@ class WebViewScreen extends StatefulWidget {
 class _WebViewScreenState extends State<WebViewScreen>
     with WidgetsBindingObserver {
   InAppWebViewController? _webCtrl;
-  bool _isLoading  = true;
-  bool _hasError   = false;
+  bool _isLoading   = true;
+  bool _hasError    = false;
   bool _hasInternet = true;
   double _progress  = 0;
 
-  // ── Lock state ──────────────────────────────────────────────────
-  // Lock on cold start if biometric lock is enabled and a PIN is set.
-  // AppSettings.load() runs before runApp(), so values are ready here.
+  // ── Lock state ──────────────────────────────────────────────────────────
+  // Lock on cold start when biometric lock is enabled AND a PIN has been set.
+  // A pinHash that starts with '_legacy_' still counts as "PIN set" — the
+  // lock screen handles the transparent migration to v2.
   bool _locked = AppSettings.biometricLock && AppSettings.pinHash.isNotEmpty;
   DateTime? _backgroundedAt;
 
   static const String _baseUrl = 'https://c.x.t-lyfe.com.ng';
 
-  // ── Screenshot prevention flag (applied on every build) ─────────
   bool get _screenshotBlocked => AppSettings.screenshotBlock;
 
   @override
@@ -50,18 +50,13 @@ class _WebViewScreenState extends State<WebViewScreen>
     WidgetsBinding.instance.addObserver(this);
     _listenToFCM();
     _monitorConnectivity();
-    // Screenshot prevention applied via native channel
     Future.microtask(() => _applyScreenshotPrevention());
-    // Startup checks in background
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future.delayed(const Duration(seconds: 3));
       if (!mounted) return;
-      // Force update check
       final blocked = await RemoteConfigService.checkForceUpdate(context);
       if (blocked) return;
-      // Maintenance check
       await RemoteConfigService.checkMaintenance(context);
-      // Play Store flexible update
       await Future.delayed(const Duration(seconds: 10));
       if (mounted) UpdateService.checkForUpdate(context);
     });
@@ -73,7 +68,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     super.dispose();
   }
 
-  // ── App lifecycle — handles auto-lock ──────────────────────────
+  // ── App lifecycle — handles auto-lock ──────────────────────────────────
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
@@ -84,22 +79,19 @@ class _WebViewScreenState extends State<WebViewScreen>
       // Record timestamp whenever biometric or auto-lock is active,
       // so isAutoLockExpired() always has a valid reference.
       if (AppSettings.biometricLock || AppSettings.autoLock) {
-        AppSettings.setLastLocked(
-            DateTime.now().millisecondsSinceEpoch);
+        AppSettings.setLastLocked(DateTime.now().millisecondsSinceEpoch);
       }
     }
 
     if (state == AppLifecycleState.resumed) {
-      // Clear badge when user opens app
       BadgeService.clear();
 
-      // Check if we should lock
+      // Check if we should lock on resume.
       if (AppSettings.biometricLock && AppSettings.pinHash.isNotEmpty) {
         final shouldLock = AppSettings.autoLock
             ? AppSettings.isAutoLockExpired()
-            // No auto-lock timer: lock if backgrounded >30 s, OR if
-            // _backgroundedAt is null (resumed without a recorded pause,
-            // e.g. app was killed and relaunched fresh).
+            // No auto-lock timer: lock after 30 s in background,
+            // or if _backgroundedAt is null (cold launch / killed & relaunched).
             : (_backgroundedAt == null ||
                 DateTime.now().difference(_backgroundedAt!) >
                     const Duration(seconds: 30));
@@ -108,7 +100,6 @@ class _WebViewScreenState extends State<WebViewScreen>
         }
       }
 
-      // Screenshot prevention — re-apply on resume
       Future.microtask(() => _applyScreenshotPrevention());
     }
   }
@@ -117,12 +108,12 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   Future<void> _applyScreenshotPrevention() async {
     try {
-      await _mainChannel.invokeMethod('setSecureFlag',
-          {'secure': AppSettings.screenshotBlock});
+      await _mainChannel.invokeMethod(
+          'setSecureFlag', {'secure': AppSettings.screenshotBlock});
     } catch (_) {}
   }
 
-  // ── Connectivity monitor ────────────────────────────────────────
+  // ── Connectivity monitor ────────────────────────────────────────────────
   void _monitorConnectivity() {
     Connectivity().onConnectivityChanged.listen((results) {
       if (!mounted) return;
@@ -140,7 +131,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
   }
 
-  // ── FCM listener ────────────────────────────────────────────────
+  // ── FCM listener ────────────────────────────────────────────────────────
   void _listenToFCM() {
     FirebaseMessaging.onMessage.listen((msg) {
       NotificationHandler.showNotification(msg);
@@ -168,7 +159,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
   }
 
-  // ── Register FCM token with backend ─────────────────────────────
+  // ── Register FCM token with backend ─────────────────────────────────────
   Future<void> _registerTokenWithBackend(String token) async {
     try {
       final safeToken = token.replaceAll("'", "\\'").replaceAll("\n", "");
@@ -256,7 +247,6 @@ class _WebViewScreenState extends State<WebViewScreen>
       await _registerTokenWithBackend(token);
     }
 
-    // Inject settings + extended bridge
     final settingsJs = AppSettings.jsSettingsObject;
 
     await _webCtrl?.evaluateJavascript(source: '''
@@ -268,19 +258,16 @@ class _WebViewScreenState extends State<WebViewScreen>
   document.documentElement.style.overscrollBehavior = 'none';
   if (document.body) document.body.style.overscrollBehavior = 'none';
 
-  // Inject settings object
   $settingsJs
 
-  // Detect active conversation for smart notification suppression
   (function() {
     var urlParams = new URLSearchParams(window.location.search);
-    var convId = urlParams.get('conversation_id') || 
-                 urlParams.get('group_id') || 
+    var convId = urlParams.get('conversation_id') ||
+                 urlParams.get('group_id') ||
                  urlParams.get('channel_id') || '';
     if (convId) {
       window.flutter_inappwebview.callHandler('Bridge', 'setActiveConv', convId);
     }
-    // Clear on page change
     window.addEventListener('beforeunload', function() {
       window.flutter_inappwebview.callHandler('Bridge', 'setActiveConv', '');
     });
@@ -315,7 +302,6 @@ class _WebViewScreenState extends State<WebViewScreen>
     }
   };
 
-  // Save session cookie
   try {
     window.flutter_inappwebview.callHandler('Bridge', 'saveSessionCookie', document.cookie);
   } catch(e) {}
@@ -354,11 +340,11 @@ class _WebViewScreenState extends State<WebViewScreen>
     allowsBackForwardNavigationGestures: false,
   );
 
+  // ── Build ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    // Screenshot prevention applied via native channel in initState
-
-    // Show biometric lock overlay if locked
+    // Show full-screen biometric lock when app is locked.
     if (_locked) {
       return BiometricLockScreen(
         onUnlocked: () {
@@ -436,7 +422,6 @@ class _WebViewScreenState extends State<WebViewScreen>
                               MaterialPageRoute(
                                   builder: (_) => const NativeSettingsPage()),
                             ).then((_) {
-                              // Re-apply screenshot and re-inject settings
                               Future.microtask(() => _applyScreenshotPrevention());
                               _injectBridge();
                             });
@@ -528,9 +513,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                 onLoadStop: (ctrl, url) async {
                   if (mounted) setState(() => _isLoading = false);
                   await _injectBridge();
-                  // Clear badge when user views app
                   await BadgeService.clear();
-                  // Predictive preload — warm up key pages after login
                   _schedulePreload(ctrl, url?.toString() ?? '');
                 },
 
@@ -673,10 +656,8 @@ class _WebViewScreenState extends State<WebViewScreen>
     );
   }
 
-  // ── Predictive preloading ─────────────────────────────────────────
+  // ── Predictive preloading ─────────────────────────────────────────────────
   void _schedulePreload(InAppWebViewController ctrl, String currentUrl) {
-    // After login page loads → preload the main chat page
-    // After rc.html loads → preload dm list
     if (currentUrl.contains('login') || currentUrl.contains('index')) {
       Future.delayed(const Duration(seconds: 2), () async {
         try {
@@ -748,7 +729,6 @@ class _WebViewScreenState extends State<WebViewScreen>
                 ],
                 const SizedBox(height: 28),
                 Row(children: [
-                  // NO — blue button
                   Expanded(
                     child: GestureDetector(
                       onTap: () {
@@ -780,7 +760,6 @@ class _WebViewScreenState extends State<WebViewScreen>
                     ),
                   ),
                   const SizedBox(width: 14),
-                  // YES — red button
                   Expanded(
                     child: GestureDetector(
                       onTap: () {
@@ -820,4 +799,3 @@ class _WebViewScreenState extends State<WebViewScreen>
     );
   }
 }
-
