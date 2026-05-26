@@ -7,11 +7,15 @@ import android.os.Bundle
 import android.util.Rational
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+// !! IMPORTANT: Must extend FlutterFragmentActivity (NOT FlutterActivity)
+//    for local_auth to display biometric dialogs (fingerprint / Face ID)
+//    on Android. FlutterActivity does not support the FragmentManager that
+//    the BiometricPrompt API requires.
+class MainActivity : FlutterFragmentActivity() {
 
     private val PIP_CHANNEL = "com.tlyfe.chatxap/pip"
 
@@ -45,7 +49,7 @@ class MainActivity : FlutterActivity() {
                     }
 
                     "exitPiP" -> {
-                        // Exit happens automatically when user taps expand
+                        // Exit happens automatically when user taps expand.
                         result.success(true)
                     }
 
