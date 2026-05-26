@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+  <!-- ── App identity ─────────────────────────────────────────────────── -->
+  <key>CFBundleDisplayName</key>
+  <string>ChatXAP</string>
+  <key>CFBundleName</key>
+  <string>ChatXAP</string>
+  <key>CFBundleIdentifier</key>
+  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleVersion</key>
+  <string>$(FLUTTER_BUILD_NUMBER)</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$(FLUTTER_BUILD_NAME)</string>
+  <key>CFBundleExecutable</key>
+  <string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>$(DEVELOPMENT_LANGUAGE)</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+
+  <!-- ── Flutter ───────────────────────────────────────────────────────── -->
+  <key>CADisableMinimumFrameDurationOnPhone</key>
+  <true/>
+  <key>UIApplicationSupportsIndirectInputEvents</key>
+  <true/>
+
+  <!-- ── Orientation ───────────────────────────────────────────────────── -->
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationPortraitUpsideDown</string>
+  </array>
+  <key>UISupportedInterfaceOrientations~ipad</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+
+  <!-- ── Status bar ────────────────────────────────────────────────────── -->
+  <key>UIStatusBarStyle</key>
+  <string>UIStatusBarStyleLightContent</string>
+  <key>UIViewControllerBasedStatusBarAppearance</key>
+  <false/>
+
+  <!-- ── Background modes ──────────────────────────────────────────────── -->
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>fetch</string>
+    <string>remote-notification</string>
+  </array>
+
+  <!-- ── Push notifications ────────────────────────────────────────────── -->
+  <key>FirebaseAppDelegateProxyEnabled</key>
+  <false/>
+
+  <!-- ── Deep linking ──────────────────────────────────────────────────── -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>chatxap</string>
+      </array>
+    </dict>
+  </array>
+
+  <!-- ── Privacy — Camera ──────────────────────────────────────────────── -->
+  <key>NSCameraUsageDescription</key>
+  <string>ChatXAP uses the camera for photos, videos, and video calls.</string>
+
+  <!-- ── Privacy — Microphone ──────────────────────────────────────────── -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>ChatXAP uses the microphone for voice messages and calls.</string>
+
+  <!-- ── Privacy — Photo Library ───────────────────────────────────────── -->
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>ChatXAP needs access to your photo library to share images.</string>
+  <key>NSPhotoLibraryAddUsageDescription</key>
+  <string>ChatXAP saves received media to your photo library.</string>
+
+  <!-- ── Privacy — Face ID (REQUIRED for local_auth on iOS) ────────────── -->
+  <!--   Without this key the app crashes on any device with Face ID when    -->
+  <!--   LAContext.evaluatePolicy is called, even if you intend fingerprint. -->
+  <key>NSFaceIDUsageDescription</key>
+  <string>ChatXAP uses Face ID to securely unlock the app and protect your conversations.</string>
+
+  <!-- ── Privacy — Contacts (for share sheet, not requested at install) ── -->
+  <key>NSContactsUsageDescription</key>
+  <string>ChatXAP can suggest contacts when you share content.</string>
+
+  <!-- ── Networking ─────────────────────────────────────────────────────── -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <false/>
+    <key>NSExceptionDomains</key>
+    <dict>
+      <key>t-lyfe.com.ng</key>
+      <dict>
+        <key>NSExceptionAllowsInsecureHTTPLoads</key>
+        <false/>
+        <key>NSIncludesSubdomains</key>
+        <true/>
+        <key>NSRequiresCertificateTransparency</key>
+        <true/>
+      </dict>
+    </dict>
+  </dict>
+
+</dict>
+</plist>
