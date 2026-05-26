@@ -21,9 +21,24 @@
 -keep class com.dexterous.** { *; }
 -dontwarn com.dexterous.**
 
-# Local Auth / Biometric
+# ── Biometric / Local Auth ────────────────────────────────────────────────────
+# flutter local_auth plugin classes
 -keep class io.flutter.plugins.localauth.** { *; }
+-dontwarn io.flutter.plugins.localauth.**
+# AndroidX BiometricPrompt (used internally by local_auth)
 -keep class androidx.biometric.** { *; }
+-dontwarn androidx.biometric.**
+
+# ── Secure Storage ────────────────────────────────────────────────────────────
+# flutter_secure_storage uses EncryptedSharedPreferences backed by Keystore.
+# These rules prevent R8 from stripping the androidx.security classes it uses.
+-keep class androidx.security.crypto.** { *; }
+-dontwarn androidx.security.crypto.**
+# The plugin itself
+-keep class com.it_nomads.fluttersecurestorage.** { *; }
+-dontwarn com.it_nomads.fluttersecurestorage.**
+
+# ── Crypto (Dart package uses JVM MessageDigest via JNI — no extra rules) ────
 
 # App Badger
 -keep class fr.g123k.flutterapplicationbadger.** { *; }
