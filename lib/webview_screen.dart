@@ -365,6 +365,23 @@ class _WebViewScreenState extends State<WebViewScreen>
       child: Scaffold(
         backgroundColor: const Color(0xFF0A0F1F),
         body: SafeArea(
+          // top: false is REQUIRED when SystemUiMode.edgeToEdge is active.
+          //
+          // Why: MainActivity sets WindowCompat.setDecorFitsSystemWindows(false)
+          // which tells Android to report real window insets to ALL views,
+          // including the WebView. This means env(safe-area-inset-top) inside
+          // the web pages' CSS already returns the real status bar height and
+          // the pages push their own headers down correctly.
+          //
+          // If top were true (the Flutter default), SafeArea would ALSO add
+          // statusBarHeight padding above the WebView, causing content to be
+          // pushed down TWICE — once by SafeArea and once by the CSS safe-area
+          // inset. The visible symptoms are:
+          //   • Pages look dropped / have a big empty gap at top
+          //   • Loading progress bar overlaps usernames on status/story pages
+          //   • Scroll only works from the top strip (touch coords misaligned)
+          //   • Bottom content hidden / clipped
+          top: false,
           child: Stack(
             children: [
               InAppWebView(
@@ -566,10 +583,15 @@ class _WebViewScreenState extends State<WebViewScreen>
                 },
               ),
 
-              // Progress bar
+              // Progress bar — positioned just below the transparent status bar.
+              // MediaQuery.of(context).padding.top gives the real status bar
+              // height (works correctly because edgeToEdge + top:false SafeArea
+              // propagates real window insets into MediaQuery).
               if (_isLoading)
                 Positioned(
-                  top: 0, left: 0, right: 0,
+                  top: MediaQuery.of(context).padding.top,
+                  left: 0,
+                  right: 0,
                   child: LinearProgressIndicator(
                     value: _progress > 0.03 ? _progress : null,
                     backgroundColor: Colors.transparent,
