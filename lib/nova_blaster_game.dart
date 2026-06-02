@@ -11,7 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'game_audio.dart';
 
 // ═══════════════════════════════════════════════════════ ENUMS
-enum AlienKind { drone, fighter, destroyer, boss }
+enum AlienKind { drone, fighter, destroyer, weaver, splitter, boss }
 enum PUKind    { shield, rapid, life, bomb }
 enum GamePhase { title, playing, gameOver, paused }
 enum WaveShape { vForm, grid, heart, diamond, swarm, bossWave }
@@ -314,6 +314,63 @@ class _Art {
     if (flashT>0) c.drawPath(body, Paint()..color=Colors.white.withOpacity(flashT.clamp(0.0,0.88)));
   }
 
+  // ── ALIEN WEAVER (sleek cyan dart — fast & evasive) ──────────────────
+  static void alienWeaver(Canvas c, double r, double anim, double flashT) {
+    const cM=_cCyan, cD=Color(0xFF00838F), cE=Color(0xFFB2FF59);
+    final pulse=sin(anim*6)*0.5+0.5;
+    for (final s2 in [-1.0,1.0]) {
+      final fin=Path()
+        ..moveTo(0,-r*0.1)..lineTo(s2*r*1.25,r*0.35)
+        ..lineTo(s2*r*0.5,r*0.46)..lineTo(0,r*0.2)..close();
+      _f.color=cD.withOpacity(0.82); c.drawPath(fin,_f);
+      _s.color=cM.withOpacity(0.6);_s.strokeWidth=1.0; c.drawPath(fin,_s);
+    }
+    final body=Path()
+      ..moveTo(0,-r*1.05)..lineTo(r*0.42,r*0.2)..lineTo(0,r*0.64)..lineTo(-r*0.42,r*0.2)..close();
+    c.drawPath(body, Paint()..shader=RadialGradient(
+      center: const Alignment(-0.2,-0.5),
+      colors:[Color.lerp(cM,Colors.white,0.4)!,cM,cD],
+      stops: const [0,0.45,1],
+    ).createShader(Rect.fromCenter(center:Offset.zero,width:r,height:r*2)));
+    _s.color=cM.withOpacity(0.7);_s.strokeWidth=1.1; c.drawPath(body,_s);
+    _g8.color=cE.withOpacity(0.4+pulse*0.3); c.drawCircle(Offset(0,-r*0.15),r*0.28,_g8);
+    _f.color=cE; c.drawCircle(Offset(0,-r*0.15),r*0.15,_f);
+    _f.color=Colors.white.withOpacity(0.8); c.drawCircle(Offset(-r*0.04,-r*0.2),r*0.06,_f);
+    _g4.color=cM.withOpacity(0.5+pulse*0.4); c.drawCircle(Offset(0,r*0.6),r*0.18,_g4);
+    if (flashT>0) c.drawPath(body, Paint()..color=Colors.white.withOpacity(flashT.clamp(0.0,0.85)));
+  }
+
+  // ── ALIEN SPLITTER (orange twin-cell — divides on death) ─────────────
+  static void alienSplitter(Canvas c, double r, double anim, double flashT, int hp, int maxHp) {
+    const cM=_cOrange, cD=Color(0xFFBF360C), cL=Color(0xFFFFCC80), cE=Color(0xFFFFEB3B);
+    final wob=sin(anim*3)*0.06*r;
+    for (final s2 in [-1.0,1.0]) {
+      final rect=Rect.fromCircle(center: Offset(s2*r*0.34,0), radius: r*0.7);
+      c.drawOval(
+        Rect.fromCenter(center: Offset(s2*r*0.34,0), width: r*1.05+wob, height: r*1.5),
+        Paint()..shader=RadialGradient(
+          center: Alignment(s2*-0.3,-0.4),
+          colors:[Color.lerp(cM,Colors.white,0.3)!,cM,cD],
+          stops: const [0,0.5,1],
+        ).createShader(rect));
+    }
+    _s.color=cE.withOpacity(0.7);_s.strokeWidth=1.6; c.drawLine(Offset(0,-r*0.7),Offset(0,r*0.7),_s);
+    _s.color=cL.withOpacity(0.5);_s.strokeWidth=1.2;
+    c.drawOval(Rect.fromCenter(center: Offset.zero, width: r*1.78, height: r*1.5),_s);
+    for (final s2 in [-1.0,1.0]) {
+      _g4.color=cE.withOpacity(0.55); c.drawCircle(Offset(s2*r*0.34,-r*0.05),r*0.2,_g4);
+      _f.color=Colors.black; c.drawCircle(Offset(s2*r*0.34,-r*0.05),r*0.16,_f);
+      _f.color=cE; c.drawCircle(Offset(s2*r*0.34,-r*0.05),r*0.1,_f);
+      _f.color=Colors.white.withOpacity(0.7); c.drawCircle(Offset(s2*r*0.34-r*0.03,-r*0.1),r*0.04,_f);
+    }
+    if (maxHp>1) {
+      final bW=r*2.2,bH=5.0,bY=r+7.0,pct=(hp/maxHp).clamp(0.0,1.0);
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(0,bY),width: bW,height: bH),const Radius.circular(3)),Paint()..color=Colors.black.withOpacity(0.6));
+      if (pct>0) c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(-bW/2,bY-bH/2,bW*pct,bH),const Radius.circular(3)),Paint()..color=pct>0.5?cL:_cRed);
+    }
+    if (flashT>0) c.drawCircle(Offset.zero, r, Paint()..color=Colors.white.withOpacity(flashT.clamp(0.0,0.85)));
+  }
+
   // ── ALIEN BOSS ────────────────────────────────────────────────────────
   static void alienBoss(Canvas c, double r, double anim, int phase, double flashT, int hp, int maxHp) {
     final col=phase==1?const Color(0xFFE53935):phase==2?_cPurple:_cOrange;
@@ -431,6 +488,8 @@ class _Alien {
       case AlienKind.drone:    hp=maxHp=1;cr=20;score=10;col=_cGreen;
       case AlienKind.fighter:  hp=maxHp=2;cr=16;score=20;col=const Color(0xFF29B6F6);
       case AlienKind.destroyer:hp=maxHp=6;cr=28;score=50;col=_cPurple;
+      case AlienKind.weaver:   hp=maxHp=2;cr=15;score=30;col=_cCyan;
+      case AlienKind.splitter: hp=maxHp=4;cr=23;score=40;col=_cOrange;
       case AlienKind.boss:     hp=maxHp=80;cr=58;score=500;col=_cRed;
     }
   }
@@ -451,8 +510,10 @@ class _Alien {
       }
     } else {
       y+=vy*dt;
-      oscPhase+=dt*(kind==AlienKind.fighter?2.4:1.5);
-      x=baseX+sin(oscPhase)*oscAmp;
+      final oscSpd = kind==AlienKind.weaver?4.4:kind==AlienKind.fighter?2.4:1.5;
+      final ampMul = kind==AlienKind.weaver?1.55:1.0;
+      oscPhase+=dt*oscSpd;
+      x=baseX+sin(oscPhase)*oscAmp*ampMul;
       x=x.clamp(cr,sw-cr);
     }
     shootTimer-=dt;if(flash>0)flash-=dt*5;
@@ -531,9 +592,14 @@ class _GS {
   // Wave spawn queue
   double fireT=0,spawnT=0;
   List<Offset> wavePositions=[];
+  List<AlienKind> waveKinds=[];   // per-position kind (endless mixed waves)
   int waveIdx=0;
   AlienKind waveKind=AlienKind.drone;
   bool spawning=false;
+
+  // Deferred spawns (e.g. splitter children) — flushed AFTER collision pass to
+  // avoid mutating s.aliens while iterating it (ConcurrentModificationError).
+  List<_Alien> pendingSpawns=[];
 
   // Screen effects
   double shakeT=0,flashScreen=0,titleAnim=0;
@@ -542,9 +608,9 @@ class _GS {
   String reloadMsg='';
   double reloadMsgT=0;
 
-  // Derived
-  double get alienSpd => (62+level*11).toDouble(); // reduced from 95+20x for better pacing
-  int get killsForLevel => 12+level*3;
+  // Derived — endless difficulty curve (fast early ramp, gentle but unbounded later)
+  double get alienSpd => (58 + (level<=20 ? level*7.0 : 140 + (level-20)*2.2)).toDouble();
+  int get killsForLevel => 10+level*2;
 
   bool get canAffordReload => score >= _kReloadCost;
 
@@ -564,7 +630,7 @@ class _GS {
     shield=false;speedBoost=false;gunLevel=1;bombs=0;
     shieldT=speedT=gunT=invT=flashT=0;
     aliens.clear();bullets.clear();ptcls.clear();pus.clear();trail.clear();labels.clear();
-    fireT=spawnT=0;waveKills=0;wavePositions.clear();waveIdx=0;spawning=false;
+    fireT=spawnT=0;waveKills=0;wavePositions.clear();waveKinds.clear();pendingSpawns.clear();waveIdx=0;spawning=false;
     shakeT=flashScreen=levelUpOverlay=bossWarnOverlay=0;
     reloadMsg='';reloadMsgT=0;
     phase=GamePhase.playing;
@@ -577,30 +643,48 @@ class _GS {
     shield=false;speedBoost=false;gunLevel=1;bombs=0;
     shieldT=speedT=gunT=invT=flashT=0;
     aliens.clear();bullets.clear();ptcls.clear();pus.clear();trail.clear();labels.clear();
-    fireT=spawnT=0;waveKills=0;wavePositions.clear();waveIdx=0;spawning=false;
+    fireT=spawnT=0;waveKills=0;wavePositions.clear();waveKinds.clear();pendingSpawns.clear();waveIdx=0;spawning=false;
     shakeT=flashScreen=levelUpOverlay=bossWarnOverlay=0;
     reloadMsg='';reloadMsgT=0;
-    level=lastLevel.clamp(1,999);
+    level=lastLevel.clamp(1,1000000);
     phase=GamePhase.playing;
     _queueWave();
   }
 
   void _queueWave(){
+    waveKinds=[];
     final isBoss=level%5==0;
     if(isBoss){
       wavePositions=[Offset(sw/2,-90)];
       waveKind=AlienKind.boss;
+      waveKinds=[AlienKind.boss];
     } else {
       final shapes=[WaveShape.vForm,WaveShape.grid,WaveShape.heart,WaveShape.diamond,WaveShape.swarm];
       final shape=shapes[(level-1)%shapes.length];
-      final count=8+level*2;
-      final kind=level>=6&&rng.nextDouble()<0.25?AlienKind.destroyer
-                :level>=3&&rng.nextDouble()<0.5?AlienKind.fighter
-                :AlienKind.drone;
+      // Wave grows with level but is capped so spawns stay readable.
+      final count=(8+level*2).clamp(8,46).toInt();
       wavePositions=_Formation.build(shape,count,sw);
-      waveKind=kind;
+      waveKind=AlienKind.drone;
+      // Mixed waves: each slot gets a kind based on the current difficulty tier.
+      waveKinds=List.generate(wavePositions.length,(_)=>_pickKind());
     }
     waveIdx=0;spawning=true;spawnT=0;
+  }
+
+  /// Weighted enemy selection that progressively unlocks tougher kinds.
+  AlienKind _pickKind(){
+    final L=level;
+    final roll=rng.nextDouble();
+    final pDestroyer = (L>=6 ? (0.10 + (L-6)*0.012).clamp(0.0,0.30) : 0.0).toDouble();
+    final pSplitter  = (L>=8 ? (0.10 + (L-8)*0.010).clamp(0.0,0.26) : 0.0).toDouble();
+    final pWeaver    = (L>=4 ? (0.16 + (L-4)*0.010).clamp(0.0,0.34) : 0.0).toDouble();
+    final pFighter   = (L>=3 ? 0.32 : (L>=2 ? 0.18 : 0.0)).toDouble();
+    double t=0.0;
+    t+=pDestroyer; if(roll<t) return AlienKind.destroyer;
+    t+=pSplitter;  if(roll<t) return AlienKind.splitter;
+    t+=pWeaver;    if(roll<t) return AlienKind.weaver;
+    t+=pFighter;   if(roll<t) return AlienKind.fighter;
+    return AlienKind.drone;
   }
 }
 
@@ -640,6 +724,8 @@ class _Logic {
     _updateTimers(dt);
     _spawnWave(dt);
     _collide();
+    // Flush deferred spawns (splitter children) now that iteration is done.
+    if(s.pendingSpawns.isNotEmpty){s.aliens.addAll(s.pendingSpawns);s.pendingSpawns.clear();}
     s.engineFlicker=sin(s.time*22)*0.5+0.5;
     // Check wave complete
     if(s.spawning==false && s.aliens.isEmpty){_waveComplete();}
@@ -709,8 +795,8 @@ class _Logic {
   }
 
   double _shtInt(AlienKind k){
-    final b=k==AlienKind.boss?0.8:k==AlienKind.destroyer?1.8:k==AlienKind.fighter?3.2:2.8;
-    return (b-s.level*0.06).clamp(0.55,b);
+    final b=k==AlienKind.boss?0.8:k==AlienKind.destroyer?1.8:k==AlienKind.weaver?2.4:k==AlienKind.splitter?3.0:k==AlienKind.fighter?3.2:2.8;
+    return (b-s.level*0.045).clamp(0.5,b);
   }
 
   void _shootAlien(_Alien e){
@@ -734,18 +820,30 @@ class _Logic {
     s.spawnT-=dt;
     if(s.spawnT>0)return;
     if(s.waveIdx>=s.wavePositions.length){s.spawning=false;return;}
-    s.spawnT=s.waveKind==AlienKind.boss?0.0:0.16;
-    final pos=s.wavePositions[s.waveIdx++];
-    // Boss enters slowly; normal aliens use alienSpd
-    final vy=s.waveKind==AlienKind.boss?90.0:s.alienSpd+s.rng.nextDouble()*20;
+    final idx=s.waveIdx;
+    final pos=s.wavePositions[idx];
+    final kind = idx<s.waveKinds.length ? s.waveKinds[idx] : s.waveKind;
+    s.waveIdx++;
+    final isBoss=kind==AlienKind.boss;
+    s.spawnT=isBoss?0.0:0.16;
+    final base=s.alienSpd;
+    // Weavers dart in faster; destroyers lumber in slower.
+    final vy=isBoss?90.0:(kind==AlienKind.weaver?base*1.25:kind==AlienKind.destroyer?base*0.82:base)+s.rng.nextDouble()*20;
     final rotS=(s.rng.nextDouble()-0.5)*2.6;
-    // Boss sweeps wide horizontally; normal aliens have moderate oscillation
-    final amp=s.waveKind==AlienKind.boss?115.0:22+s.rng.nextDouble()*50;
+    final amp=isBoss?115.0:(kind==AlienKind.weaver?40+s.rng.nextDouble()*55:22+s.rng.nextDouble()*50);
     final shtT=0.8+s.rng.nextDouble()*2.2;
-    final alien=_Alien(pos.dx,pos.dy,s.waveKind,vy,rotS,s.rng.nextDouble()*pi*2,amp,shtT);
-    if(s.waveKind==AlienKind.boss){
-      // Anchor boss at ~20% down the screen so it's always visible and in "fighting range"
+    final alien=_Alien(pos.dx,pos.dy,kind,vy,rotS,s.rng.nextDouble()*pi*2,amp,shtT);
+    if(isBoss){
+      // Escalating boss: +45 HP and a little larger every boss tier (level 5,10,15…).
+      final bossIdx=(s.level~/5);
+      final hp=70+((bossIdx-1).clamp(0,999).toInt())*45;
+      alien.maxHp=alien.hp=hp;
+      alien.cr=(58+((bossIdx-1).clamp(0,6).toInt())*4).toDouble();
       alien.bossAnchorY=(s.sh*0.20).clamp(130.0,220.0);
+    } else {
+      // Endless HP scaling — non-drone enemies get tougher every 6 levels.
+      final bonus=(s.level~/6);
+      if(bonus>0 && kind!=AlienKind.drone){alien.maxHp+=bonus;alien.hp+=bonus;}
     }
     s.aliens.add(alien);
   }
@@ -827,7 +925,7 @@ class _Logic {
     s.phase=GamePhase.gameOver;
     if(s.score>s.hi)s.hi=s.score;
     if(s.level>s.maxLevel)s.maxLevel=s.level;
-    s.lastLevel=s.level.clamp(1,999);
+    s.lastLevel=s.level.clamp(1,1000000);
     GameAudio.playGameOver();
     SharedPreferences.getInstance().then((p){
       p.setInt('nova_hi',s.hi);
@@ -851,6 +949,22 @@ class _Logic {
     if(s.combo==10)_label(e.x,e.y-36,'×5 COMBO!',_cGold,big:true);
     if(e.kind==AlienKind.boss)_label(s.sw/2,s.sh*0.4,'BOSS  SLAIN!',_cGold,big:true);
     if(s.rng.nextDouble()<0.18)s.pus.add(_PU(e.x,e.y,PUKind.values[s.rng.nextInt(PUKind.values.length)]));
+    // Splitter divides into two drones when shot down.
+    if(e.kind==AlienKind.splitter){
+      for(var i=0;i<2;i++){
+        final off=(i==0?-1.0:1.0)*22.0;
+        s.pendingSpawns.add(_Alien(
+          (e.x+off).clamp(20.0,s.sw-20.0), e.y,
+          AlienKind.drone,
+          s.alienSpd*0.95,
+          (s.rng.nextDouble()-0.5)*2.6,
+          s.rng.nextDouble()*pi*2,
+          18+s.rng.nextDouble()*30,
+          0.6+s.rng.nextDouble()*1.4,
+        ));
+      }
+      _label(e.x,e.y-20,'SPLIT!',_cOrange);
+    }
   }
 
   void _collectPU(PUKind k){
@@ -982,6 +1096,8 @@ class _Painter extends CustomPainter {
       case AlienKind.drone:    _Art.alienDrone(c,e.cr,s.time,e.flash);
       case AlienKind.fighter:  _Art.alienFighter(c,e.cr,s.time,e.flash);
       case AlienKind.destroyer:_Art.alienDestroyer(c,e.cr,s.time,e.flash,e.hp,e.maxHp);
+      case AlienKind.weaver:   _Art.alienWeaver(c,e.cr,s.time,e.flash);
+      case AlienKind.splitter: _Art.alienSplitter(c,e.cr,s.time,e.flash,e.hp,e.maxHp);
       case AlienKind.boss:     _Art.alienBoss(c,e.cr,s.time,e.bossPhase,e.flash,e.hp,e.maxHp);
     }
     c.restore();}
@@ -1024,8 +1140,8 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
     SharedPreferences.getInstance().then((p){
       setState((){
         _gs.hi=p.getInt('nova_hi')??0;
-        _gs.lastLevel=(p.getInt('nova_last_level')??1).clamp(1,999);
-        _gs.maxLevel=(p.getInt('nova_max_level')??1).clamp(1,999);
+        _gs.lastLevel=(p.getInt('nova_last_level')??1).clamp(1,1000000);
+        _gs.maxLevel=(p.getInt('nova_max_level')??1).clamp(1,1000000);
       });
     });
     GameAudio.initialize().then((_)=>GameAudio.startBackgroundMusic());
@@ -1048,9 +1164,9 @@ class _NBS extends State<NovaBlasterGame> with SingleTickerProviderStateMixin {
   }
   void _onTap(Offset p){
     switch(_gs.phase){
-      case GamePhase.title: break; // title screen uses explicit buttons
+      case GamePhase.title: break;     // title uses explicit buttons
       case GamePhase.playing:_logic.useBomb();
-      case GamePhase.gameOver:_gs.reset();GameAudio.startBackgroundMusic();
+      case GamePhase.gameOver: break;  // game-over uses explicit buttons (New Game / Continue) — no tap-to-restart
       case GamePhase.paused:_gs.phase=GamePhase.playing;GameAudio.resumeBackgroundMusic();
     }
   }
