@@ -212,51 +212,25 @@ class _WebViewScreenState extends State<WebViewScreen>
         .replaceAll("'", "\\'")
         .replaceAll('\n', '');
 
-    // Real status-bar height from Flutter (needed since WebView is now
-    // edge-to-edge with SafeArea top:false). Web pages that don't use
-    // env(safe-area-inset-top) can use var(--flutter-status-bar) instead.
-    final statusBarPx = mounted
-        ? MediaQuery.of(context).padding.top.toStringAsFixed(1)
-        : '0.0';
-
     await _webCtrl!.evaluateJavascript(source: '''
 (function() {
   try {
     window.FLUTTER_FCM_TOKEN = '$safe';
     window.IS_FLUTTER_APP = true;
     window.FLUTTER_PLATFORM = 'android';
-
     var styleId = 'cx-flutter-sel';
     var prev = document.getElementById(styleId);
     if (prev) prev.remove();
     var s = document.createElement('style');
     s.id = styleId;
     s.textContent =
-      /* Expose Flutter status-bar height as CSS custom property */
-      ':root{--flutter-status-bar:' + '$statusBarPx' + 'px}' +
-
-      /* User-select rules */
       'body,.hdr,nav,.nav,.btm-nav,.topbar,button,a,label,.mhdr,.muser,.mtime,.sidebar,.menu{' +
       '-webkit-user-select:none!important;user-select:none!important}' +
       '.bub span,.bub p,.bub div,.msg-text,input,textarea,[contenteditable]{' +
-      '-webkit-user-select:text!important;user-select:text!important}' +
-
-      /* SCROLL FIX — Android WebView + Swiper/carousel touch conflict.
-         Swiper calls preventDefault() on touchstart which kills native
-         vertical scroll inside its container — only the top header strip
-         outside the swiper remained scrollable.
-         touch-action:pan-y forces the browser to honour native vertical
-         panning regardless of preventDefault() on any element.
-         JS touchmove still fires so horizontal Swiper detection works.
-         Inputs/canvas get touch-action:auto to keep keyboard and drawing. */
-      '*{touch-action:pan-y}' +
-      'input,textarea,[contenteditable],canvas,[data-no-scroll-fix]{touch-action:auto}';
-
+      '-webkit-user-select:text!important;user-select:text!important}';
     document.head.appendChild(s);
-
     document.documentElement.style.overscrollBehavior = 'none';
-    document.body.style.overscrollBehavior            = 'none';
-
+    document.body.style.overscrollBehavior = 'none';
     if (typeof window.registerFlutterFCMToken === 'function') {
       window.registerFlutterFCMToken('$safe');
     }
@@ -351,10 +325,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     transparentBackground: false,
     useWideViewPort: true,
     loadWithOverviewMode: true,
-    // IF_CONTENT_SCROLLS: allow natural overscroll glow when content is taller
-    // than the viewport. NEVER was found to interfere with native vertical scroll
-    // on some Android WebView versions when combined with Swiper components.
-    overScrollMode: OverScrollMode.IF_CONTENT_SCROLLS,
+    overScrollMode: OverScrollMode.NEVER,
     verticalScrollBarEnabled: false,
     horizontalScrollBarEnabled: false,
     supportZoom: false,
@@ -394,23 +365,6 @@ class _WebViewScreenState extends State<WebViewScreen>
       child: Scaffold(
         backgroundColor: const Color(0xFF0A0F1F),
         body: SafeArea(
-          // top: false is REQUIRED when SystemUiMode.edgeToEdge is active.
-          //
-          // Why: MainActivity sets WindowCompat.setDecorFitsSystemWindows(false)
-          // which tells Android to report real window insets to ALL views,
-          // including the WebView. This means env(safe-area-inset-top) inside
-          // the web pages' CSS already returns the real status bar height and
-          // the pages push their own headers down correctly.
-          //
-          // If top were true (the Flutter default), SafeArea would ALSO add
-          // statusBarHeight padding above the WebView, causing content to be
-          // pushed down TWICE — once by SafeArea and once by the CSS safe-area
-          // inset. The visible symptoms are:
-          //   • Pages look dropped / have a big empty gap at top
-          //   • Loading progress bar overlaps usernames on status/story pages
-          //   • Scroll only works from the top strip (touch coords misaligned)
-          //   • Bottom content hidden / clipped
-          top: false,
           child: Stack(
             children: [
               InAppWebView(
@@ -612,14 +566,10 @@ class _WebViewScreenState extends State<WebViewScreen>
                 },
               ),
 
-              // Progress bar — top:0 places it inside the transparent status-bar
-              // area. The web page header starts at env(safe-area-inset-top) below
-              // the status bar, so top:0 here never overlaps the username/header row.
+              // Progress bar
               if (_isLoading)
                 Positioned(
-                  top: 0, // sits inside transparent status-bar zone — never overlaps web page header
-                  left: 0,
-                  right: 0,
+                  top: 0, left: 0, right: 0,
                   child: LinearProgressIndicator(
                     value: _progress > 0.03 ? _progress : null,
                     backgroundColor: Colors.transparent,
