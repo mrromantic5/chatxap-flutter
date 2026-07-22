@@ -56,7 +56,7 @@ dependencies:
   package_info_plus: ^8.1.2
 
   # Background sync
-  workmanager: ^0.5.2
+  workmanager: ^0.6.0
 
   # Certificate pinning
   http: ^1.2.2
