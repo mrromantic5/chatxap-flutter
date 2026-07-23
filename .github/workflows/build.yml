@@ -31,12 +31,12 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses || true
 
-      - name: Install Android NDK 27
+      - name: Install Android NDK 29
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "ndk;27.0.12077973" --sdk_root=$ANDROID_HOME || \
-          echo "y" | sdkmanager "ndk;27.0.12077973" || true
-          echo "✅ NDK 27.0.12077973 ready"
+            "ndk;29.0.14206865" "build-tools;36.1.0" --sdk_root=$ANDROID_HOME || \
+          echo "y" | sdkmanager "ndk;29.0.14206865" "build-tools;36.1.0" || true
+          echo "✅ NDK 29.0.14206865 + build-tools 36.1.0 ready"
 
       - name: Write google-services.json
         env:
