@@ -60,6 +60,11 @@ android {
 
     packagingOptions {
         resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] }
+        // Required for Android 16 (API 36) — 16 KB memory page size support.
+        // Without this, the app crashes on Pixel 9+ and future Android 16 devices.
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 }
 
