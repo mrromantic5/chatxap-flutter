@@ -10,7 +10,8 @@ plugins {
 android {
     namespace "com.tlyfe.chatxap"
     compileSdk 36
-    ndkVersion "27.0.12077973"
+    ndkVersion "29.0.14206865"
+    buildToolsVersion "36.1.0"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -27,6 +28,14 @@ android {
         versionCode flutter.versionCode
         versionName flutter.versionName
         multiDexEnabled true
+
+        // 16 KB page size alignment — required for Android 16 / Google Play compliance.
+        // This recompiles Flutter's native engine and all JNI code with 16 KB ELF alignment.
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+            }
+        }
     }
 
     signingConfigs {
