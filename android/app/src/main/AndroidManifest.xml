@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ── Core ──────────────────────────────────────────────────────────── -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -157,5 +158,15 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>
+
+        <!-- ── 16 KB memory page size support (Android 16 / API 36 requirement) ── -->
+        <!-- Required for devices with 16 KB page size (Pixel 9+, future Android 16 -->
+        <!-- hardware). Without this the Play Store blocks the release.              -->
+        <property
+            android:name="android.webkit.WebView.EnableSafeBrowsing"
+            tools:ignore="GoogleAppIndexingWarning"/>
+        <property
+            android:name="android.support.LARGE_PAGE_SIZE"
+            android:value="true"/>
     </application>
 </manifest>
